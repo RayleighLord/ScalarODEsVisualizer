@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Integral Curve Explorer</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="panel control-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">Scalar ODE Explorer</p>
+          <h1>
+            Integral curves for equations of the form
+            <span id="hero-equation" class="title-equation"></span>
+          </h1>
+          <p class="panel-copy">
+            Enter an ODE, set the visible window, and click in the plot to trace the solution
+            curve through that point.
+          </p>
+        </div>
+
+        <section class="card">
+          <label class="field">
+            <span class="field-label">ODE right-hand side</span>
+            <textarea
+              id="equation-input"
+              class="equation-input"
+              rows="2"
+              spellcheck="false"
+              aria-label="ODE right-hand side"
+            ></textarea>
+          </label>
+          <p class="field-help">
+            Use <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>^</code>,
+            parentheses, and functions such as <code>sin</code>, <code>cos</code>,
+            <code>exp</code>, <code>log</code>, <code>sqrt</code>, <code>abs</code>.
+          </p>
+        </section>
+
+        <form id="bounds-form" class="card" novalidate>
+          <div class="section-header">
+            <h2>Visible window</h2>
+            <button id="apply-bounds-button" class="secondary-button" type="submit">
+              Update view
+            </button>
+          </div>
+
+          <div class="bounds-grid">
+            <label class="field">
+              <span class="field-label">t min</span>
+              <input id="t-min-input" name="tMin" type="number" step="any" />
+            </label>
+            <label class="field">
+              <span class="field-label">t max</span>
+              <input id="t-max-input" name="tMax" type="number" step="any" />
+            </label>
+            <label class="field">
+              <span class="field-label">y min</span>
+              <input id="y-min-input" name="yMin" type="number" step="any" />
+            </label>
+            <label class="field">
+              <span class="field-label">y max</span>
+              <input id="y-max-input" name="yMax" type="number" step="any" />
+            </label>
+          </div>
+        </form>
+
+        <div class="compact-card-grid">
+          <section class="card">
+            <div class="button-row">
+              <button id="reset-button" class="primary-button" type="button">Reset example</button>
+              <button id="clear-curves-button" class="ghost-button" type="button">
+                Clear curves
+              </button>
+            </div>
+          </section>
+
+          <section class="card">
+            <label class="toggle-row" for="phase-flow-toggle">
+              <span>
+                <span class="toggle-title">Show phase flow</span>
+                <span class="toggle-copy">Autonomous equations only.</span>
+              </span>
+              <input id="phase-flow-toggle" class="toggle-input" type="checkbox" />
+              <span class="toggle-pill" aria-hidden="true"></span>
+            </label>
+            <div class="phase-flow-legend" aria-hidden="true">
+              <span class="legend-item"><span class="legend-marker stable"></span> stable</span>
+              <span class="legend-item"><span class="legend-marker unstable"></span> unstable</span>
+              <span class="legend-item"><span class="legend-marker semistable"></span> semistable</span>
+            </div>
+          </section>
+        </div>
+
+        <section class="card status-card">
+          <div class="status-row">
+            <span class="status-label">Equation</span>
+            <span id="equation-status" class="status-chip"></span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Equation type</span>
+            <span id="equation-type" class="status-value"></span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Equilibria</span>
+            <span id="equilibrium-summary" class="status-value"></span>
+          </div>
+          <div id="equilibrium-solutions" class="equilibrium-solutions"></div>
+          <div class="status-row">
+            <span class="status-label">Curves shown</span>
+            <span id="curve-count" class="status-value"></span>
+          </div>
+          <ul id="notice-list" class="notice-list"></ul>
+        </section>
+      </aside>
+
+      <main class="panel plot-panel">
+        <div class="plot-header">
+          <p class="eyebrow">Direction field</p>
+          <p class="plot-help">Click anywhere inside the frame to add an integral curve.</p>
+        </div>
+        <div class="plot-stage">
+          <div class="plot-equation-banner">
+            <div id="plot-ode-preview" class="plot-ode-preview" aria-live="polite"></div>
+          </div>
+          <svg
+            id="ode-plot"
+            viewBox="0 0 960 640"
+            role="img"
+            aria-label="Interactive slope field and integral curves"
+          ></svg>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

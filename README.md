@@ -1,11 +1,14 @@
 # Integral Curve Explorer
 
+> **Access here:** [Scalar ODEs Visualizer](https://rayleighlord.github.io/ScalarODEsVisualizer/)
+
 An interactive browser-based explorer for scalar first-order ordinary differential equations of
-the form $y' = f(t,y)$. It renders a direction field over a user-chosen $(t,y)$
-window, lets you click to trace solutions to the initial value problem $y(t_0) = y_0$, and
-highlights equilibrium solutions $y(t) \equiv c$ for autonomous equations
-$y' = g(y)$.
+the form
 
-Example view for $y' = y(1-y)$ with several integral curves:
+```math
+y' = f(t,y).
+```
 
-![Integral Curve Explorer example](docs/integral-curve-explorer-example.png)
+It renders a direction field over a user-chosen $(t,y)$.
+
+[![Animated showcase of the Integral Curve Explorer](docs/integral-curve-explorer-showcase.gif)](https://rayleighlord.github.io/ScalarODEsVisualizer/)

@@ -20,6 +20,7 @@ The current product goals are:
 - Prefer clear separation between UI, math/parsing, solver logic, and rendering.
 - Preserve static-site compatibility.
 - Avoid introducing unnecessary complexity for basic interactions.
+- Keep GitHub Actions CI in place so tests run automatically on pushes and pull requests, and make deployments depend on passing tests.
 
 ## Established UI And UX Preferences
 

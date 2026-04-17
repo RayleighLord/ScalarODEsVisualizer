@@ -6,11 +6,13 @@ export function computeNiceTicks(min: number, max: number, targetCount = 7): num
 
   const roughStep = span / Math.max(targetCount, 2);
   const step = niceStep(roughStep);
-  const start = Math.ceil(min / step) * step;
+  const tolerance = Math.max(Math.abs(step), Math.abs(min), Math.abs(max), 1) * 1e-9;
+  const startMultiple = Math.ceil((min - tolerance) / step);
+  const endMultiple = Math.floor((max + tolerance) / step);
   const ticks: number[] = [];
 
-  for (let value = start; value <= max + step * 0.5; value += step) {
-    ticks.push(Number(value.toFixed(12)));
+  for (let multiple = startMultiple; multiple <= endMultiple; multiple += 1) {
+    ticks.push(Number((multiple * step).toFixed(12)));
   }
 
   return ticks;

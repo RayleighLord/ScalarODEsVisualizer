@@ -31,4 +31,34 @@ describe("compileExpression", () => {
     expect(() => compileExpression("sin(")).toThrow();
     expect(() => compileExpression("foo + y")).toThrow();
   });
+
+  it("reports denominator singularities and crossed denominator boundaries", () => {
+    const expression = compileExpression("1 / y");
+
+    expect(expression.evaluateWithDiagnostics(0, 0).status).toBe("invalid");
+    expect(expression.evaluateWithDiagnostics(0, 1e-10).status).toBe("near-singular");
+    expect(expression.checkSegmentDomain({ t: 0, y: 1 }, { t: 0.1, y: -1 }).ok).toBe(false);
+  });
+
+  it("reports log and sqrt domain boundaries", () => {
+    const logExpression = compileExpression("log(y)");
+    const sqrtExpression = compileExpression("sqrt(y)");
+
+    expect(logExpression.evaluateWithDiagnostics(0, -1).status).toBe("invalid");
+    expect(logExpression.evaluateWithDiagnostics(0, 1e-10).status).toBe("near-singular");
+    expect(sqrtExpression.evaluateWithDiagnostics(0, -1).status).toBe("invalid");
+    expect(sqrtExpression.evaluateWithDiagnostics(0, 0).status).toBe("near-singular");
+  });
+
+  it("reports inverse-trig and tan domain boundaries", () => {
+    const asinExpression = compileExpression("asin(y)");
+    const tanExpression = compileExpression("tan(y)");
+
+    expect(asinExpression.evaluateWithDiagnostics(0, 1.2).status).toBe("invalid");
+    expect(asinExpression.evaluateWithDiagnostics(0, 1).status).toBe("near-singular");
+    expect(tanExpression.evaluateWithDiagnostics(0, Math.PI / 2).status).toBe("near-singular");
+    expect(
+      tanExpression.checkSegmentDomain({ t: 0, y: 1 }, { t: 0, y: 2 }).status
+    ).toBe("near-singular");
+  });
 });

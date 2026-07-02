@@ -47,6 +47,22 @@ export function snapPointToTargets(
   };
 }
 
+export function chooseSafeSnapPoint(
+  original: CurvePoint,
+  snapped: CurvePoint,
+  isSafe: (point: CurvePoint) => boolean
+): CurvePoint | null {
+  if (isSafe(snapped)) {
+    return snapped;
+  }
+
+  if (isSafe(original)) {
+    return original;
+  }
+
+  return null;
+}
+
 function snapCoordinate(
   value: number,
   candidates: number[],

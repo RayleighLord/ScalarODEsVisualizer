@@ -22,6 +22,41 @@ type ExpressionNode =
     }
   | { type: "function"; name: string; arguments: ExpressionNode[] };
 
+export type EvaluationStatus = "ok" | "near-singular" | "invalid";
+
+export interface EvaluationOptions {
+  domainTolerance?: number;
+  derivativeMagnitudeLimit?: number;
+  segmentSampleCount?: number;
+}
+
+export interface EvaluationDiagnostics {
+  value: number;
+  status: EvaluationStatus;
+  reason?: string;
+}
+
+export interface SegmentDomainCheck {
+  ok: boolean;
+  status: EvaluationStatus;
+  reason?: string;
+}
+
+interface NormalizedEvaluationOptions {
+  domainTolerance: number;
+  derivativeMagnitudeLimit?: number;
+  segmentSampleCount: number;
+}
+
+interface DomainSignal {
+  key: string;
+  evaluate: (t: number, y: number) => number;
+  classify: (value: number, tolerance: number) => EvaluationDiagnostics;
+}
+
+const DEFAULT_DOMAIN_TOLERANCE = 1e-8;
+const DEFAULT_SEGMENT_SAMPLE_COUNT = 8;
+
 export interface CompiledExpression {
   source: string;
   variables: Set<VariableName>;
@@ -29,6 +64,16 @@ export interface CompiledExpression {
   dependsOnY: boolean;
   latex: string;
   evaluate: (t: number, y: number) => number;
+  evaluateWithDiagnostics: (
+    t: number,
+    y: number,
+    options?: EvaluationOptions
+  ) => EvaluationDiagnostics;
+  checkSegmentDomain: (
+    start: { t: number; y: number },
+    end: { t: number; y: number },
+    options?: EvaluationOptions
+  ) => SegmentDomainCheck;
   evaluateAutonomous?: (y: number) => number;
 }
 
@@ -232,6 +277,30 @@ export function compileExpression(source: string): CompiledExpression {
   const ast = parser.parse();
   const variables = collectVariables(ast);
   const evaluator = (t: number, y: number) => evaluateNode(ast, t, y);
+  const domainSignals = collectDomainSignals(ast);
+  const evaluateWithDiagnostics = (
+    t: number,
+    y: number,
+    options: EvaluationOptions = {}
+  ): EvaluationDiagnostics => {
+    const normalizedOptions = normalizeEvaluationOptions(options);
+    const domainDiagnostics = evaluateDomainSignals(
+      domainSignals,
+      t,
+      y,
+      normalizedOptions
+    );
+    if (domainDiagnostics.status === "invalid") {
+      return domainDiagnostics;
+    }
+
+    return finalizeDiagnostics(
+      evaluator(t, y),
+      domainDiagnostics.status,
+      normalizedOptions,
+      domainDiagnostics.reason
+    );
+  };
   const isAutonomous = !variables.has("t");
 
   return {
@@ -241,6 +310,9 @@ export function compileExpression(source: string): CompiledExpression {
     dependsOnY: variables.has("y"),
     latex: renderNodeAsLatex(ast),
     evaluate: evaluator,
+    evaluateWithDiagnostics,
+    checkSegmentDomain: (start, end, options = {}) =>
+      checkSegmentDomain(domainSignals, start, end, normalizeEvaluationOptions(options)),
     evaluateAutonomous: isAutonomous ? (value: number) => evaluator(0, value) : undefined
   };
 }
@@ -304,6 +376,303 @@ function evaluateNode(node: ExpressionNode, t: number, y: number): number {
       return definition.evaluate(...values);
     }
   }
+}
+
+function collectDomainSignals(
+  node: ExpressionNode,
+  path = "root",
+  signals: DomainSignal[] = []
+): DomainSignal[] {
+  switch (node.type) {
+    case "unary":
+      return collectDomainSignals(node.argument, `${path}.arg`, signals);
+    case "binary":
+      collectDomainSignals(node.left, `${path}.left`, signals);
+      collectDomainSignals(node.right, `${path}.right`, signals);
+      if (node.operator === "/") {
+        signals.push({
+          key: `${path}.denominator`,
+          evaluate: (t, y) => evaluateNode(node.right, t, y),
+          classify: (value, tolerance) => classifyNonzeroBoundary(value, tolerance)
+        });
+      }
+      return signals;
+    case "function":
+      node.arguments.forEach((argument, index) => {
+        collectDomainSignals(argument, `${path}.argument${index}`, signals);
+      });
+      collectFunctionDomainSignals(node, path, signals);
+      return signals;
+    default:
+      return signals;
+  }
+}
+
+function collectFunctionDomainSignals(
+  node: Extract<ExpressionNode, { type: "function" }>,
+  path: string,
+  signals: DomainSignal[]
+): void {
+  const argument = node.arguments[0];
+
+  switch (node.name) {
+    case "log":
+      signals.push({
+        key: `${path}.log-argument`,
+        evaluate: (t, y) => evaluateNode(argument, t, y),
+        classify: (value, tolerance) =>
+          classifyLowerBoundary(
+            value,
+            true,
+            tolerance,
+            "log is undefined for non-positive values."
+          )
+      });
+      break;
+    case "sqrt":
+      signals.push({
+        key: `${path}.sqrt-argument`,
+        evaluate: (t, y) => evaluateNode(argument, t, y),
+        classify: (value, tolerance) =>
+          classifyLowerBoundary(
+            value,
+            false,
+            tolerance,
+            "sqrt is undefined for negative values."
+          )
+      });
+      break;
+    case "asin":
+    case "acos":
+      signals.push(
+        {
+          key: `${path}.${node.name}-lower-bound`,
+          evaluate: (t, y) => evaluateNode(argument, t, y) + 1,
+          classify: (value, tolerance) =>
+            classifyLowerBoundary(
+              value,
+              false,
+              tolerance,
+              `${node.name} is undefined outside [-1, 1].`
+            )
+        },
+        {
+          key: `${path}.${node.name}-upper-bound`,
+          evaluate: (t, y) => 1 - evaluateNode(argument, t, y),
+          classify: (value, tolerance) =>
+            classifyLowerBoundary(
+              value,
+              false,
+              tolerance,
+              `${node.name} is undefined outside [-1, 1].`
+            )
+        }
+      );
+      break;
+    case "tan":
+      signals.push({
+        key: `${path}.tan-cosine`,
+        evaluate: (t, y) => Math.cos(evaluateNode(argument, t, y)),
+        classify: (value, tolerance) =>
+          classifyNonzeroBoundary(value, tolerance, "tan is singular where cos is zero.")
+      });
+      break;
+  }
+}
+
+function evaluateDomainSignals(
+  signals: DomainSignal[],
+  t: number,
+  y: number,
+  options: NormalizedEvaluationOptions
+): EvaluationDiagnostics {
+  for (const signal of signals) {
+    const diagnostics = signal.classify(signal.evaluate(t, y), options.domainTolerance);
+    if (diagnostics.status !== "ok") {
+      return diagnostics;
+    }
+  }
+
+  return { value: Number.NaN, status: "ok" };
+}
+
+function checkSegmentDomain(
+  signals: DomainSignal[],
+  start: { t: number; y: number },
+  end: { t: number; y: number },
+  options: NormalizedEvaluationOptions
+): SegmentDomainCheck {
+  if (signals.length === 0) {
+    return { ok: true, status: "ok" };
+  }
+
+  let previousValues: number[] | null = null;
+
+  for (let index = 0; index <= options.segmentSampleCount; index += 1) {
+    const progress = index / options.segmentSampleCount;
+    const t = start.t + (end.t - start.t) * progress;
+    const y = start.y + (end.y - start.y) * progress;
+    const currentValues: number[] = [];
+
+    for (let signalIndex = 0; signalIndex < signals.length; signalIndex += 1) {
+      const signal = signals[signalIndex];
+      const value = signal.evaluate(t, y);
+      const diagnostics = signal.classify(value, options.domainTolerance);
+
+      if (diagnostics.status !== "ok") {
+        return {
+          ok: false,
+          status: diagnostics.status,
+          reason: diagnostics.reason ?? "The step approaches a point where the ODE is undefined."
+        };
+      }
+
+      if (
+        previousValues &&
+        crossesBoundary(previousValues[signalIndex], value, options.domainTolerance)
+      ) {
+        return {
+          ok: false,
+          status: "near-singular",
+          reason: "The step crosses a point where the ODE is undefined."
+        };
+      }
+
+      currentValues.push(value);
+    }
+
+    previousValues = currentValues;
+  }
+
+  return { ok: true, status: "ok" };
+}
+
+function normalizeEvaluationOptions(options: EvaluationOptions): NormalizedEvaluationOptions {
+  return {
+    domainTolerance: options.domainTolerance ?? DEFAULT_DOMAIN_TOLERANCE,
+    derivativeMagnitudeLimit: options.derivativeMagnitudeLimit,
+    segmentSampleCount: Math.max(
+      1,
+      Math.round(options.segmentSampleCount ?? DEFAULT_SEGMENT_SAMPLE_COUNT)
+    )
+  };
+}
+
+function finalizeDiagnostics(
+  value: number,
+  status: EvaluationStatus,
+  options: NormalizedEvaluationOptions,
+  reason?: string
+): EvaluationDiagnostics {
+  if (!Number.isFinite(value)) {
+    return {
+      value,
+      status: "invalid",
+      reason: reason ?? "The expression evaluates to a non-finite value."
+    };
+  }
+
+  if (
+    options.derivativeMagnitudeLimit !== undefined &&
+    Math.abs(value) > options.derivativeMagnitudeLimit
+  ) {
+    return {
+      value,
+      status: mergeStatuses(status, "near-singular"),
+      reason: reason ?? "The derivative is too large to step through reliably."
+    };
+  }
+
+  return { value, status, reason };
+}
+
+function mergeStatuses(...statuses: EvaluationStatus[]): EvaluationStatus {
+  if (statuses.includes("invalid")) {
+    return "invalid";
+  }
+
+  if (statuses.includes("near-singular")) {
+    return "near-singular";
+  }
+
+  return "ok";
+}
+
+function classifyNonzeroBoundary(
+  value: number,
+  tolerance: number,
+  nearReason = "A denominator is close to zero."
+): EvaluationDiagnostics {
+  if (!Number.isFinite(value)) {
+    return {
+      value,
+      status: "invalid",
+      reason: "A domain boundary evaluated to a non-finite value."
+    };
+  }
+
+  if (value === 0) {
+    return {
+      value,
+      status: "invalid",
+      reason: nearReason
+    };
+  }
+
+  if (Math.abs(value) <= tolerance) {
+    return {
+      value,
+      status: "near-singular",
+      reason: nearReason
+    };
+  }
+
+  return { value, status: "ok" };
+}
+
+function classifyLowerBoundary(
+  value: number,
+  isStrict: boolean,
+  tolerance: number,
+  invalidReason: string
+): EvaluationDiagnostics {
+  if (!Number.isFinite(value)) {
+    return {
+      value,
+      status: "invalid",
+      reason: "A domain boundary evaluated to a non-finite value."
+    };
+  }
+
+  if (isStrict ? value <= 0 : value < 0) {
+    return {
+      value,
+      status: "invalid",
+      reason: invalidReason
+    };
+  }
+
+  if (value <= tolerance) {
+    return {
+      value,
+      status: "near-singular",
+      reason: invalidReason
+    };
+  }
+
+  return { value, status: "ok" };
+}
+
+function crossesBoundary(left: number, right: number, tolerance: number): boolean {
+  if (!Number.isFinite(left) || !Number.isFinite(right)) {
+    return true;
+  }
+
+  if (Math.abs(left) <= tolerance || Math.abs(right) <= tolerance) {
+    return true;
+  }
+
+  return (left < 0 && right > 0) || (left > 0 && right < 0);
 }
 
 function collectVariables(node: ExpressionNode, variables = new Set<VariableName>()): Set<VariableName> {

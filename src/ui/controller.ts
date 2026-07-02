@@ -174,7 +174,7 @@ function deriveViewModel(state: AppState): ViewModel {
   const trajectories =
     compiled && !equationError
       ? state.curveSeeds.map((seed) =>
-          solveIntegralCurve(seed, state.bounds, compiled.evaluate, solverSettings)
+          solveIntegralCurve(seed, state.bounds, compiled, solverSettings)
         )
       : [];
 

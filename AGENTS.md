@@ -75,6 +75,7 @@ The current product goals are:
 - Clicking inside the plot adds an integral curve through that point.
 - Multiple curves may remain visible simultaneously until cleared.
 - Autonomous fixed-point behavior should remain easy to interpret through both equilibrium lines and the optional phase-flow rail.
+- Integral curves for ODEs with singular terms should stop near undefined barriers rather than overshooting or crossing onto an invalid branch.
 
 ## Showcase Videos
 

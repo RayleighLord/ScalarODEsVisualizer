@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { snapPointToTargets } from "../plot/snap";
+import { compileExpression } from "../math/parser";
+import { chooseSafeSnapPoint, snapPointToTargets } from "../plot/snap";
 
 const bounds = {
   tMin: -4,
@@ -57,5 +58,24 @@ describe("snapPointToTargets", () => {
 
     expect(snapped.t).toBe(0);
     expect(snapped.y).toBe(0.03);
+  });
+
+  it("falls back to the original point when snapping would hit a singularity", () => {
+    const original = { t: 0.02, y: 0.03 };
+    const snapped = snapPointToTargets(original, {
+      bounds,
+      equilibriumLevels: [],
+      scaleX: 150,
+      scaleY: 120,
+      axisSnapPixels: 10
+    });
+    const expression = compileExpression("1 / y");
+
+    const chosen = chooseSafeSnapPoint(original, snapped, (point) => {
+      return expression.evaluateWithDiagnostics(point.t, point.y).status === "ok";
+    });
+
+    expect(snapped).toEqual({ t: 0, y: 0 });
+    expect(chosen).toEqual(original);
   });
 });

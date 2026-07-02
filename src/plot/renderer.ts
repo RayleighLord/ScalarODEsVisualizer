@@ -13,6 +13,10 @@ import type { ViewModel } from "../ui/controller";
 import katex from "katex";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const SLOPE_EVALUATION_OPTIONS = {
+  domainTolerance: 1e-8,
+  derivativeMagnitudeLimit: 1e6
+} as const;
 const CURVE_PALETTE = [
   { stroke: "#2f80ed", seed: "#70aaf5", halo: "rgba(47, 128, 237, 0.24)" },
   { stroke: "#16a085", seed: "#5bc6ae", halo: "rgba(22, 160, 133, 0.24)" },
@@ -294,10 +298,11 @@ export class ODEPlotRenderer {
             y: coordinates.innerTop
           }).t;
 
-        const slope = compiled.evaluate(t, y);
-        if (!Number.isFinite(slope)) {
+        const slopeDiagnostics = compiled.evaluateWithDiagnostics(t, y, SLOPE_EVALUATION_OPTIONS);
+        if (slopeDiagnostics.status !== "ok" || !Number.isFinite(slopeDiagnostics.value)) {
           continue;
         }
+        const slope = slopeDiagnostics.value;
 
         const center = coordinates.modelToSvg({ t, y });
         const screenVector = normalizeVector({

@@ -1,8 +1,13 @@
 import katex from "katex";
 
 import { ODEPlotRenderer } from "./plot/renderer";
+import { chooseSafeSnapPoint } from "./plot/snap";
 import { AppController, type ViewModel } from "./ui/controller";
 import type { AppNotice, AxisBounds } from "./types";
+
+const SEED_EVALUATION_OPTIONS = {
+  domainTolerance: 1e-8
+} as const;
 
 export function startApp(): void {
   const equationInput = getElement<HTMLTextAreaElement>("equation-input");
@@ -117,7 +122,20 @@ export function startApp(): void {
       equilibriumSnapPixels: 9
     });
 
-    controller.addCurveSeed(snappedPoint);
+    const seedPoint = chooseSafeSnapPoint(modelPoint, snappedPoint, (point) => {
+      const diagnostics = viewModel.compiled?.evaluateWithDiagnostics(
+        point.t,
+        point.y,
+        SEED_EVALUATION_OPTIONS
+      );
+      return diagnostics?.status === "ok";
+    });
+
+    if (!seedPoint) {
+      return;
+    }
+
+    controller.addCurveSeed(seedPoint);
   });
 }
 

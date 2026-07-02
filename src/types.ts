@@ -41,6 +41,7 @@ export interface CurvePoint {
 export type TerminationReason =
   | "domain-limit"
   | "vertical-boundary"
+  | "singularity"
   | "max-steps"
   | "invalid-value"
   | "solver-error";
@@ -54,8 +55,13 @@ export interface IntegralCurve {
 
 export interface SolverSettings {
   stepSize: number;
+  minStepSize: number;
   maxSteps: number;
   blowUpThreshold: number;
+  absoluteTolerance: number;
+  relativeTolerance: number;
+  domainTolerance: number;
+  derivativeMagnitudeLimit: number;
 }
 
 export type NoticeTone = "info" | "warning" | "error";

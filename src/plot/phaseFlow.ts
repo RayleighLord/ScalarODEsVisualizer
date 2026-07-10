@@ -18,18 +18,36 @@ export interface EquilibriumMarker {
   stability: EquilibriumStability;
 }
 
+export interface PhaseFlowAnalysis {
+  bands: PhaseFlowBand[];
+  markers: EquilibriumMarker[];
+}
+
+const SINGULAR_INTERVAL_SUBDIVISIONS = 48;
+const LOCAL_DIRECTION_PROBES = [1e-6, 1e-4, 1e-2, 0.1, 0.5] as const;
+
 export function computePhaseFlowBands(
   bounds: AxisBounds,
   levels: number[],
   evaluateAutonomous: (y: number) => number,
   zeroTolerance = 1e-6
 ): PhaseFlowBand[] {
+  return analyzePhaseFlow(bounds, levels, evaluateAutonomous, zeroTolerance).bands;
+}
+
+export function analyzePhaseFlow(
+  bounds: AxisBounds,
+  levels: number[],
+  evaluateAutonomous: (y: number) => number,
+  zeroTolerance = 1e-6,
+  isIntervalInDomain?: (start: number, end: number) => boolean
+): PhaseFlowAnalysis {
   const visibleLevels = dedupeLevels(levels, zeroTolerance).filter(
     (level) => level > bounds.yMin + zeroTolerance && level < bounds.yMax - zeroTolerance
   );
 
   if (visibleLevels.length === 0) {
-    return [];
+    return { bands: [], markers: [] };
   }
 
   const boundaries = [bounds.yMin, ...visibleLevels, bounds.yMax];
@@ -43,21 +61,114 @@ export function computePhaseFlowBands(
       continue;
     }
 
-    const sampleY = (yStart + yEnd) / 2;
-    const slope = evaluateAutonomous(sampleY);
+    bands.push(
+      ...computeBandsForInterval(
+        yStart,
+        yEnd,
+        evaluateAutonomous,
+        zeroTolerance,
+        isIntervalInDomain
+      )
+    );
+  }
 
-    if (!Number.isFinite(slope) || Math.abs(slope) <= zeroTolerance) {
+  return {
+    bands,
+    markers: visibleLevels.map((level, index) => ({
+      level,
+      stability: classifyFromAdjacentDirections(
+        findLocalDirection(
+          level,
+          boundaries[index],
+          evaluateAutonomous,
+          isIntervalInDomain
+        ),
+        findLocalDirection(
+          level,
+          boundaries[index + 2],
+          evaluateAutonomous,
+          isIntervalInDomain
+        )
+      )
+    }))
+  };
+}
+
+function computeBandsForInterval(
+  start: number,
+  end: number,
+  evaluate: (y: number) => number,
+  zeroTolerance: number,
+  isIntervalInDomain?: (start: number, end: number) => boolean
+): PhaseFlowBand[] {
+  if (!isIntervalInDomain || isIntervalInDomain(start, end)) {
+    const direction = evaluateDirection((start + end) / 2, evaluate, zeroTolerance);
+    return direction ? [{ yStart: start, yEnd: end, direction }] : [];
+  }
+
+  const bands: PhaseFlowBand[] = [];
+  const width = (end - start) / SINGULAR_INTERVAL_SUBDIVISIONS;
+
+  for (let index = 0; index < SINGULAR_INTERVAL_SUBDIVISIONS; index += 1) {
+    const segmentStart = start + index * width;
+    const segmentEnd = index === SINGULAR_INTERVAL_SUBDIVISIONS - 1 ? end : segmentStart + width;
+    const direction = isIntervalInDomain(segmentStart, segmentEnd)
+      ? evaluateDirection((segmentStart + segmentEnd) / 2, evaluate, zeroTolerance)
+      : null;
+    const previous = bands[bands.length - 1];
+
+    if (!direction) {
       continue;
     }
 
-    bands.push({
-      yStart,
-      yEnd,
-      direction: slope > 0 ? "up" : "down"
-    });
+    if (
+      previous &&
+      previous.direction === direction &&
+      Math.abs(previous.yEnd - segmentStart) <= Math.abs(width) * 1e-9
+    ) {
+      previous.yEnd = segmentEnd;
+    } else {
+      bands.push({ yStart: segmentStart, yEnd: segmentEnd, direction });
+    }
   }
 
   return bands;
+}
+
+function findLocalDirection(
+  equilibrium: number,
+  boundary: number,
+  evaluate: (y: number) => number,
+  isIntervalInDomain?: (start: number, end: number) => boolean
+): PhaseFlowDirection | null {
+  for (const fraction of LOCAL_DIRECTION_PROBES) {
+    const sample = equilibrium + (boundary - equilibrium) * fraction;
+    if (sample === equilibrium) {
+      continue;
+    }
+    if (isIntervalInDomain && !isIntervalInDomain(equilibrium, sample)) {
+      continue;
+    }
+
+    const slope = evaluate(sample);
+    if (Number.isFinite(slope) && slope !== 0) {
+      return slope > 0 ? "up" : "down";
+    }
+  }
+
+  return null;
+}
+
+function evaluateDirection(
+  sample: number,
+  evaluate: (y: number) => number,
+  zeroTolerance: number
+): PhaseFlowDirection | null {
+  const slope = evaluate(sample);
+  if (!Number.isFinite(slope) || Math.abs(slope) <= zeroTolerance) {
+    return null;
+  }
+  return slope > 0 ? "up" : "down";
 }
 
 export function classifyEquilibriumMarkers(
@@ -66,41 +177,7 @@ export function classifyEquilibriumMarkers(
   evaluateAutonomous: (y: number) => number,
   zeroTolerance = 1e-6
 ): EquilibriumMarker[] {
-  const visibleLevels = dedupeLevels(levels, zeroTolerance).filter(
-    (level) => level > bounds.yMin + zeroTolerance && level < bounds.yMax - zeroTolerance
-  );
-
-  if (visibleLevels.length === 0) {
-    return [];
-  }
-
-  const boundaries = [bounds.yMin, ...visibleLevels, bounds.yMax];
-  const intervalDirections: Array<PhaseFlowDirection | null> = [];
-
-  for (let index = 0; index < boundaries.length - 1; index += 1) {
-    const start = boundaries[index];
-    const end = boundaries[index + 1];
-
-    if (end - start <= zeroTolerance) {
-      intervalDirections.push(null);
-      continue;
-    }
-
-    const sampleY = (start + end) / 2;
-    const slope = evaluateAutonomous(sampleY);
-
-    if (!Number.isFinite(slope) || Math.abs(slope) <= zeroTolerance) {
-      intervalDirections.push(null);
-      continue;
-    }
-
-    intervalDirections.push(slope > 0 ? "up" : "down");
-  }
-
-  return visibleLevels.map((level, index) => ({
-    level,
-    stability: classifyFromAdjacentDirections(intervalDirections[index], intervalDirections[index + 1])
-  }));
+  return analyzePhaseFlow(bounds, levels, evaluateAutonomous, zeroTolerance).markers;
 }
 
 function classifyFromAdjacentDirections(

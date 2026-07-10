@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-This project is an interactive website for exploring scalar first-order ordinary differential equations of the form `y' = f(t, y)`. It is intended to be deployable later as a static site, including via GitHub Pages.
+This project is an interactive website for exploring scalar first-order ordinary differential equations of the form `y' = f(t, y)`. It is a static Vite site deployed through GitHub Pages and must remain usable without a backend.
 
 The current product goals are:
 
@@ -11,8 +11,8 @@ The current product goals are:
 - Let the user enter the ODE right-hand side `f(t, y)`.
 - Draw slope markers so the flow direction is visually apparent.
 - Plot the integral curve through any clicked point in the plot.
-- For autonomous equations, detect equilibrium points and show them as horizontal lines.
-- For autonomous equations with visible equilibria, optionally show a phase-flow rail with arrows along the `y` direction.
+- For autonomous equations, detect isolated equilibrium levels and equilibrium intervals; show them as horizontal lines or shaded horizontal bands.
+- For autonomous equations with visible isolated equilibria, optionally show a phase-flow rail with arrows along the `y` direction.
 
 ## Engineering Expectations
 
@@ -21,6 +21,26 @@ The current product goals are:
 - Preserve static-site compatibility.
 - Avoid introducing unnecessary complexity for basic interactions.
 - Keep GitHub Actions CI in place so tests run automatically on pushes and pull requests, and make deployments depend on passing tests.
+
+## Current Architecture And Performance Invariants
+
+- Treat `src/math/parser.ts` as the stable public facade for expression compilation. Parser implementation details live in `src/math/expression/`, with supported functions centralized in `catalog.ts` and separate modules for syntax, evaluation, diagnostics, domain analysis, intervals, and LaTeX.
+- Do not introduce `eval`, `new Function`, or another runtime code-generation path for user expressions.
+- Preserve semantic autonomy detection. Algebraically canceled time dependence such as `t - t` may be autonomous, but simplification must not erase genuine domain restrictions such as the hole in `0 / t` or `0 * t^-1`.
+- Compile the AST evaluator once per expression and prepare diagnostic evaluation once per numerical pass, then reuse it throughout that equilibria scan, slope-field render, phase-flow analysis, or solve. Avoid reparsing or rebuilding evaluators in numerical inner loops.
+- Keep segment-domain checks conservative but bounded. They must detect sign-changing, even-order, paired, and oblique undefined barriers without inventing barriers for safe correlated or exactly canceled expressions.
+- `EquilibriumResult` can contain both isolated `levels` and continuous `intervals`. Do not approximate a continuous equilibrium interval with a large collection of individual roots.
+- Treat an equation as zero everywhere only when an exact, domain-safe identity proves it. A small nonzero constant is not an all-equilibria equation.
+- Equilibrium detection must reject poles, retain even-multiplicity roots, and represent exact zero continua as intervals.
+- The phase-flow rail is for isolated equilibrium levels and is suppressed when equilibrium intervals are present. Its directional bands must respect singular domain gaps, and marker stability must use local probes so a remote singularity cannot change the classification.
+- Despite the legacy filename `src/solver/rk4.ts`, the solver is adaptive Dormand-Prince RK45 with an embedded error estimate and FSAL derivative reuse. Do not replace it with fixed-step RK4 based on the filename alone.
+- Keep solver outcomes distinct: a domain singularity, a non-domain invalid value, a visible-boundary exit, and accuracy-driven `step-underflow` are different termination cases.
+- `AppController.applyUpdate` is the atomic state-transition API. Related expression, bounds, clear, and phase-flow changes should be batched so expensive derived state is invalidated at most once and listeners see one final update.
+- Preserve controller caches and selective invalidation. Adding one seed should solve only the new curve; toggling an overlay or clearing curves should not recompile the expression, rescan equilibria, or solve unrelated trajectories.
+- Expression input is debounced. Bounds submission, clear, and phase-flow changes must batch any pending expression into the same controller update. A plot click must commit the pending expression before validating, snapping, or solving its seed. An expression-only publish must not overwrite axis-limit edits the user has not submitted yet. Same-expression no-ops must still restore the `Ready` status and clear `aria-busy`.
+- The plot renderer uses retained, dependency-keyed SVG layers. Reuse unchanged grid, direction-field, equilibrium, phase-flow, curve, and KaTeX nodes instead of rebuilding the complete plot on every update.
+- Grid and direction-field geometry should remain compact SVG paths. For autonomous equations, evaluate a slope once per visible `y` row rather than once per marker.
+- Responsive resize should reposition existing HTML/KaTeX annotations; it should not rebuild unchanged SVG geometry or annotation nodes. Adding a curve should retain all existing curve groups and append only the new group.
 
 ## Established UI And UX Preferences
 
@@ -67,7 +87,9 @@ The current product goals are:
 - For UI/layout changes, do not rely only on code inspection.
 - Use browser-based visual inspection as part of the feedback loop.
 - Prefer Playwright-based verification for layout-sensitive changes.
-- Check realistic desktop/laptop viewports, not only large screens.
+- Check realistic desktop/laptop viewports such as `1180x780` and `1440x900`, not only large screens.
+- Run `npm run test:browser` for changes that affect interactions, rendering, responsive layout, expression editing, or production assets. The smoke script builds the production site before exercising it in Chromium.
+- Use `output/playwright/browser-smoke.png` as a quick artifact check, but still inspect a headed browser when making substantial visual changes.
 - When adjusting layout, confirm that the actual rendered page matches the intended result before considering the task complete.
 
 ## Current Interaction Expectations
@@ -75,7 +97,20 @@ The current product goals are:
 - Clicking inside the plot adds an integral curve through that point.
 - Multiple curves may remain visible simultaneously until cleared.
 - Autonomous fixed-point behavior should remain easy to interpret through both equilibrium lines and the optional phase-flow rail.
+- Continuous families of equilibrium solutions should appear as restrained shaded bands and be listed as intervals in the lower-left status area.
 - Integral curves for ODEs with singular terms should stop near undefined barriers rather than overshooting or crossing onto an invalid branch.
+
+## Development, Testing, And Deployment
+
+- Use Node.js 24 through `.nvmrc`; `package.json` supports Node `>=22.12.0 <25`. Use `npm ci` for reproducible installs.
+- Use `npm test` for the fast Vitest suite, `npm run typecheck` for TypeScript-only validation, `npm run build` for the production build, and `npm run test:browser` for the production Chromium smoke suite.
+- Add focused regression tests whenever changing parsing precedence, domain semantics, equilibrium classification, adaptive stepping, controller invalidation, retained rendering, or debounced form behavior.
+- The browser smoke suite intentionally checks node retention, batched/debounced edits, invalid expressions, equilibrium intervals, canceled domain dependencies, and annotation alignment after resize. Keep those checks deterministic rather than weakening timeouts to hide a race.
+- GitHub Actions is consolidated in `.github/workflows/ci.yml`. Pull requests test and build without deploying; a push to `main` uploads the already-tested `dist` artifact and deploys it from a dependent `deploy` job.
+- Do not reintroduce a second Pages build workflow without a specific reason. Building independently for deployment duplicates work and can deploy an artifact different from the one exercised by browser smoke tests.
+- Preserve Vite's relative `base: "./"` so the static build works at the repository subpath on GitHub Pages.
+- The Vite KaTeX transform deliberately retains only modern WOFF2 fonts. If KaTeX or its CSS changes, verify both equation rendering and production bundle size.
+- Keep generated builds, caches, and browser artifacts out of version control: `dist/`, `.vite/`, `.playwright-cli/`, `output/playwright/`, and showcase Playwright logs are ignored.
 
 ## Showcase Videos
 

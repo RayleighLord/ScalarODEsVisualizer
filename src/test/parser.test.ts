@@ -10,13 +10,34 @@ describe("compileExpression", () => {
     expect(value).toBeCloseTo(-8, 8);
   });
 
+  it("gives exponentiation conventional precedence over unary signs", () => {
+    expect(compileExpression("-y^2").evaluate(0, 3)).toBe(-9);
+    expect(compileExpression("(-y)^2").evaluate(0, 3)).toBe(9);
+    expect(compileExpression("y^-2").evaluate(0, 2)).toBeCloseTo(0.25, 12);
+    expect(compileExpression("-2^-2").evaluate(0, 0)).toBeCloseTo(-0.25, 12);
+    expect(compileExpression("2^(-2)").evaluate(0, 0)).toBeCloseTo(0.25, 12);
+
+    expect(compileExpression("-y^2").latex).toBe("-y^{2}");
+    expect(compileExpression("(-y)^2").latex).toBe("\\left(-y\\right)^{2}");
+    expect(compileExpression("y^-2").latex).toBe("y^{-2}");
+  });
+
   it("detects autonomous equations", () => {
     const autonomous = compileExpression("y * (1 - y)");
     const nonAutonomous = compileExpression("t - y");
+    const canceledTime = compileExpression("t - t");
+    const zeroTimeProduct = compileExpression("0 * t + y");
+    const domainLimitedTime = compileExpression("0 / t");
 
     expect(autonomous.isAutonomous).toBe(true);
     expect(autonomous.dependsOnY).toBe(true);
     expect(nonAutonomous.isAutonomous).toBe(false);
+    expect(canceledTime.isAutonomous).toBe(true);
+    expect(canceledTime.isIdenticallyZero).toBe(true);
+    expect(zeroTimeProduct.isAutonomous).toBe(true);
+    expect(zeroTimeProduct.dependsOnY).toBe(true);
+    expect(domainLimitedTime.isAutonomous).toBe(false);
+    expect(domainLimitedTime.evaluateWithDiagnostics(0, 1).status).toBe("invalid");
   });
 
   it("generates LaTeX for rendered previews", () => {
@@ -38,6 +59,93 @@ describe("compileExpression", () => {
     expect(expression.evaluateWithDiagnostics(0, 0).status).toBe("invalid");
     expect(expression.evaluateWithDiagnostics(0, 1e-10).status).toBe("near-singular");
     expect(expression.checkSegmentDomain({ t: 0, y: 1 }, { t: 0.1, y: -1 }).ok).toBe(false);
+  });
+
+  it("detects hidden even-order and paired denominator boundaries", () => {
+    const squaredPole = compileExpression("1 / (y - 0.123)^2");
+    const pairedPoles = compileExpression("1 / ((y - 0.123) * (y - 0.124))");
+    const negativePowerPole = compileExpression("(y - 0.123)^-2");
+    const safeMinimum = compileExpression("1 / ((y - 0.123)^2 + 0.01)");
+
+    expect(
+      squaredPole.checkSegmentDomain(
+        { t: 0, y: 0 },
+        { t: 0.1, y: 1 },
+        { segmentSampleCount: 2 }
+      ).ok
+    ).toBe(false);
+    expect(
+      pairedPoles.checkSegmentDomain(
+        { t: 0, y: 0 },
+        { t: 0.1, y: 1 },
+        { segmentSampleCount: 2 }
+      ).ok
+    ).toBe(false);
+    expect(
+      negativePowerPole.checkSegmentDomain(
+        { t: 0, y: 0 },
+        { t: 0.1, y: 1 },
+        { segmentSampleCount: 2 }
+      ).ok
+    ).toBe(false);
+    expect(
+      safeMinimum.checkSegmentDomain(
+        { t: 0, y: 0 },
+        { t: 0.1, y: 1 },
+        { segmentSampleCount: 2 }
+      ).ok
+    ).toBe(true);
+  });
+
+  it("does not invent a boundary when t and y vary together safely", () => {
+    const expression = compileExpression("1 / (t - y)");
+
+    expect(
+      expression.checkSegmentDomain(
+        { t: 0, y: -2 },
+        { t: 2, y: 0 },
+        { segmentSampleCount: 2 }
+      ).ok
+    ).toBe(true);
+  });
+
+  it("preserves exact cancellation in domain interval checks", () => {
+    const expression = compileExpression("1 / (1e12*y - 1e12*y + 1)");
+
+    expect(
+      expression.checkSegmentDomain(
+        { t: -1, y: -2 },
+        { t: 1, y: 2 },
+        { segmentSampleCount: 2 }
+      ).ok
+    ).toBe(true);
+  });
+
+  it("prepares reusable diagnostic evaluators and observes option changes safely", () => {
+    const expression = compileExpression("1 / y");
+    const prepared = expression.prepareEvaluation?.({ domainTolerance: 1e-4 });
+
+    expect(prepared).toBeDefined();
+
+    expect(prepared?.evaluateWithDiagnostics(0, 1e-5).status).toBe("near-singular");
+    expect(
+      prepared?.checkSegmentDomain({ t: 0, y: -1 }, { t: 0, y: 1 }).ok
+    ).toBe(false);
+
+    const mutableOptions = { domainTolerance: 1e-4 };
+    expect(expression.evaluateWithDiagnostics(0, 1e-5, mutableOptions).status).toBe(
+      "near-singular"
+    );
+    mutableOptions.domainTolerance = 1e-6;
+    expect(expression.evaluateWithDiagnostics(0, 1e-5, mutableOptions).status).toBe("ok");
+  });
+
+  it("conservatively proves simple zero identities", () => {
+    expect(compileExpression("y - y").isIdenticallyZero).toBe(true);
+    expect(compileExpression("0 * y").isIdenticallyZero).toBe(true);
+    expect(compileExpression("sin(y) + -sin(y)").isIdenticallyZero).toBe(true);
+    expect(compileExpression("0 / y").isIdenticallyZero).toBe(false);
+    expect(compileExpression("0 * t^-1").isAutonomous).toBe(false);
   });
 
   it("reports log and sqrt domain boundaries", () => {

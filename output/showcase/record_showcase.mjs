@@ -1,16 +1,20 @@
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const execFileAsync = promisify(execFile);
 
-const outputDir = "/home/javier/Desktop/ODEProject/output/showcase";
+const outputDir = path.dirname(fileURLToPath(import.meta.url));
 const rawTarget = path.join(outputDir, "ode_showcase_cursor.webm");
 const finalTarget = path.join(outputDir, "ode_showcase_cursor.mp4");
-const chromePath = "/usr/bin/google-chrome";
-const url = process.env.SHOWCASE_URL ?? "http://127.0.0.1:4174/";
+const systemChromePath = "/usr/bin/google-chrome";
+const chromePath =
+  process.env.CHROME_PATH ?? (existsSync(systemChromePath) ? systemChromePath : undefined);
+const url = process.env.SHOWCASE_URL ?? "http://127.0.0.1:4173/";
 const videoSize = { width: 1920, height: 1080 };
 const trimStartSeconds = "0.9";
 
@@ -19,7 +23,7 @@ await removeIfExists(rawTarget);
 await removeIfExists(finalTarget);
 
 const browser = await chromium.launch({
-  executablePath: chromePath,
+  ...(chromePath ? { executablePath: chromePath } : {}),
   headless: true,
   args: ["--mute-audio"]
 });

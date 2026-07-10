@@ -42,6 +42,7 @@ export type TerminationReason =
   | "domain-limit"
   | "vertical-boundary"
   | "singularity"
+  | "step-underflow"
   | "max-steps"
   | "invalid-value"
   | "solver-error";
@@ -57,11 +58,9 @@ export interface SolverSettings {
   stepSize: number;
   minStepSize: number;
   maxSteps: number;
-  blowUpThreshold: number;
   absoluteTolerance: number;
   relativeTolerance: number;
   domainTolerance: number;
-  derivativeMagnitudeLimit: number;
 }
 
 export type NoticeTone = "info" | "warning" | "error";
@@ -71,8 +70,16 @@ export interface AppNotice {
   text: string;
 }
 
+export interface EquilibriumInterval {
+  min: number;
+  max: number;
+  minInclusive: boolean;
+  maxInclusive: boolean;
+}
+
 export interface EquilibriumResult {
   mode: "not-autonomous" | "roots" | "none" | "all";
   levels: number[];
+  intervals: EquilibriumInterval[];
   message: string;
 }

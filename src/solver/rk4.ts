@@ -2,8 +2,8 @@ import type { CompiledExpression, EvaluationOptions } from "../math/parser";
 import type {
   AxisBounds,
   CurvePoint,
-  IntegralCurve,
   CurveSeed,
+  IntegralCurve,
   SolverSettings,
   TerminationReason
 } from "../types";
@@ -16,29 +16,57 @@ interface TraceResult {
 type SolverExpression = Pick<
   CompiledExpression,
   "evaluateWithDiagnostics" | "checkSegmentDomain"
->;
+> &
+  Partial<Pick<CompiledExpression, "prepareEvaluation">>;
+
+interface PreparedSolverExpression {
+  evaluateWithDiagnostics: (
+    t: number,
+    y: number
+  ) => ReturnType<CompiledExpression["evaluateWithDiagnostics"]>;
+  checkSegmentDomain: (
+    start: CurvePoint,
+    end: CurvePoint
+  ) => ReturnType<CompiledExpression["checkSegmentDomain"]>;
+}
+
+type StepRejectionCause = "accuracy" | "domain" | "non-finite";
 
 type StepAttempt =
-  | { accepted: true; point: CurvePoint; errorEstimate: number; tolerance: number }
-  | { accepted: false };
+  | {
+      accepted: true;
+      point: CurvePoint;
+      endDerivative: number;
+      stepFactor: number;
+    }
+  | {
+      accepted: false;
+      cause: StepRejectionCause;
+      stepFactor: number;
+    };
 
 type DerivativeAttempt =
   | { accepted: true; value: number }
-  | { accepted: false };
+  | { accepted: false; cause: Exclude<StepRejectionCause, "accuracy"> };
+
+const SAFETY_FACTOR = 0.9;
+const MINIMUM_REDUCTION_FACTOR = 0.1;
+const MAXIMUM_REDUCTION_FACTOR = 0.5;
+const MINIMUM_GROWTH_FACTOR = 0.2;
+const MAXIMUM_GROWTH_FACTOR = 5;
+const VISIBLE_Y_STEP_FRACTION = 0.25;
 
 export function createSolverSettings(bounds: AxisBounds): SolverSettings {
-  const span = bounds.tMax - bounds.tMin;
+  const tSpan = bounds.tMax - bounds.tMin;
+  const ySpan = bounds.yMax - bounds.yMin;
 
   return {
-    stepSize: span / 320,
-    minStepSize: span / 100000,
+    stepSize: tSpan / 160,
+    minStepSize: tSpan / 1e10,
     maxSteps: 5000,
-    blowUpThreshold: Math.max(Math.abs(bounds.yMin), Math.abs(bounds.yMax), 10) * 6,
-    absoluteTolerance: Math.max(1e-6, (bounds.yMax - bounds.yMin) / 10000),
-    relativeTolerance: 1e-4,
-    domainTolerance: 1e-8,
-    derivativeMagnitudeLimit:
-      Math.max(1, (bounds.yMax - bounds.yMin) / span) * 1e6
+    absoluteTolerance: Math.max(1e-9, ySpan * 1e-7),
+    relativeTolerance: 1e-6,
+    domainTolerance: 1e-8
   };
 }
 
@@ -49,8 +77,35 @@ export function solveIntegralCurve(
   settings: SolverSettings
 ): IntegralCurve {
   const evaluationOptions = createEvaluationOptions(settings);
-  const backward = traceDirection(seed, bounds, expression, settings, evaluationOptions, -1);
-  const forward = traceDirection(seed, bounds, expression, settings, evaluationOptions, 1);
+  const preparedExpression = prepareSolverExpression(expression, evaluationOptions);
+  const initialPoint = { t: seed.t, y: seed.y };
+  const initialDerivative = evaluateDerivative(preparedExpression, initialPoint);
+
+  if (!initialDerivative.accepted) {
+    return {
+      id: seed.id,
+      seed,
+      points: [initialPoint],
+      terminationReason: terminationForRejection(initialDerivative.cause)
+    };
+  }
+
+  const backward = traceDirection(
+    seed,
+    bounds,
+    preparedExpression,
+    settings,
+    initialDerivative.value,
+    -1
+  );
+  const forward = traceDirection(
+    seed,
+    bounds,
+    preparedExpression,
+    settings,
+    initialDerivative.value,
+    1
+  );
   const merged = [...backward.points.reverse(), ...forward.points.slice(1)];
 
   return {
@@ -64,56 +119,77 @@ export function solveIntegralCurve(
 function traceDirection(
   seed: CurveSeed,
   bounds: AxisBounds,
-  expression: SolverExpression,
+  expression: PreparedSolverExpression,
   settings: SolverSettings,
-  evaluationOptions: EvaluationOptions,
+  initialDerivative: number,
   direction: -1 | 1
 ): TraceResult {
   const points: CurvePoint[] = [{ t: seed.t, y: seed.y }];
-  let t = seed.t;
-  let y = seed.y;
-  let stepSize = settings.stepSize;
-  let steps = 0;
+  let current: CurvePoint = { t: seed.t, y: seed.y };
+  const maximumStep = normalizedMaximumStep(settings, bounds);
+  let stepSize = maximumStep;
+  const minimumStep = normalizedMinimumStep(settings, bounds, maximumStep);
+  let currentDerivative = initialDerivative;
+  let acceptedSteps = 0;
+  let consecutiveRejections = 0;
 
-  if (!evaluateDerivative(expression, seed, evaluationOptions).accepted) {
-    return { points, terminationReason: "singularity" };
-  }
+  while (acceptedSteps < settings.maxSteps) {
+    const remaining = direction > 0 ? bounds.tMax - current.t : current.t - bounds.tMin;
+    const timeTolerance = timeResolution(current.t, direction > 0 ? bounds.tMax : bounds.tMin);
 
-  while (steps < settings.maxSteps) {
-    const remaining =
-      direction > 0 ? bounds.tMax - t : t - bounds.tMin;
-
-    if (remaining <= 1e-10) {
+    if (remaining <= timeTolerance) {
       return { points, terminationReason: "domain-limit" };
     }
 
-    const step = Math.min(stepSize, remaining) * direction;
-    const attempt = attemptAdaptiveStep({ t, y }, step, expression, settings, evaluationOptions);
+    const unconstrainedStep = Math.min(stepSize, remaining);
+    const stepMagnitude = limitStepToVisibleYScale(
+      unconstrainedStep,
+      currentDerivative,
+      bounds
+    );
+
+    if (
+      stepMagnitude <= 0 ||
+      !Number.isFinite(stepMagnitude) ||
+      current.t + direction * stepMagnitude === current.t
+    ) {
+      return { points, terminationReason: "step-underflow" };
+    }
+
+    const attempt = attemptDormandPrinceStep(
+      current,
+      direction * stepMagnitude,
+      currentDerivative,
+      expression,
+      settings
+    );
 
     if (!attempt.accepted) {
-      if (stepSize <= settings.minStepSize) {
-        return { points, terminationReason: "singularity" };
+      consecutiveRejections += 1;
+
+      if (stepMagnitude <= minimumStep * (1 + 1e-12) || consecutiveRejections >= 64) {
+        return {
+          points,
+          terminationReason:
+            attempt.cause === "accuracy"
+              ? "step-underflow"
+              : terminationForRejection(attempt.cause)
+        };
       }
 
-      stepSize = Math.max(settings.minStepSize, stepSize / 2);
+      stepSize = Math.max(minimumStep, stepMagnitude * attempt.stepFactor);
       continue;
     }
 
+    consecutiveRejections = 0;
     const next = attempt.point;
+
     if (!Number.isFinite(next.t) || !Number.isFinite(next.y)) {
       return { points, terminationReason: "invalid-value" };
     }
 
-    if (Math.abs(next.y) > settings.blowUpThreshold) {
-      const clipped = clipSegmentToVerticalBounds({ t, y }, next, bounds);
-      if (clipped) {
-        points.push(clipped);
-      }
-      return { points, terminationReason: "vertical-boundary" };
-    }
-
     if (next.y < bounds.yMin || next.y > bounds.yMax) {
-      const clipped = clipSegmentToVerticalBounds({ t, y }, next, bounds);
+      const clipped = clipSegmentToVerticalBounds(current, next, bounds);
       if (clipped) {
         points.push(clipped);
       }
@@ -121,186 +197,315 @@ function traceDirection(
     }
 
     points.push(next);
-    t = next.t;
-    y = next.y;
-    stepSize = chooseNextStepSize(stepSize, attempt.errorEstimate, attempt.tolerance, settings);
-    steps += 1;
+    current = next;
+    currentDerivative = attempt.endDerivative;
+    stepSize = Math.min(
+      maximumStep,
+      Math.max(minimumStep, stepMagnitude * attempt.stepFactor)
+    );
+    acceptedSteps += 1;
   }
 
   return { points, terminationReason: "max-steps" };
 }
 
-function attemptAdaptiveStep(
+/**
+ * One Dormand-Prince 5(4) step. The fifth-order solution is accepted while the
+ * embedded fourth-order solution supplies a local error estimate. k7 is the
+ * derivative at the accepted endpoint, so the caller can reuse it as the next
+ * step's k1 (the FSAL property).
+ */
+function attemptDormandPrinceStep(
   start: CurvePoint,
   step: number,
-  expression: SolverExpression,
-  settings: SolverSettings,
-  evaluationOptions: EvaluationOptions
+  k1: number,
+  expression: PreparedSolverExpression,
+  settings: SolverSettings
 ): StepAttempt {
-  const fullStep = rk4GuardedStep(start, step, expression, settings, evaluationOptions);
-  if (!fullStep.accepted) {
-    return { accepted: false };
-  }
-
-  const firstHalfStep = rk4GuardedStep(start, step / 2, expression, settings, evaluationOptions);
-  if (!firstHalfStep.accepted) {
-    return { accepted: false };
-  }
-
-  const secondHalfStep = rk4GuardedStep(
-    firstHalfStep.point,
-    step / 2,
+  const k2 = evaluateStage(
     expression,
-    settings,
-    evaluationOptions
+    start,
+    stagePoint(start, step, 1 / 5, (1 / 5) * k1)
   );
-  if (!secondHalfStep.accepted) {
-    return { accepted: false };
+  if (!k2.accepted) {
+    return rejectedStep(k2.cause);
   }
 
-  if (!checkSegment(expression, start, secondHalfStep.point, evaluationOptions)) {
-    return { accepted: false };
+  const k3 = evaluateStage(
+    expression,
+    start,
+    stagePoint(start, step, 3 / 10, (3 / 40) * k1 + (9 / 40) * k2.value)
+  );
+  if (!k3.accepted) {
+    return rejectedStep(k3.cause);
   }
 
-  const errorEstimate = Math.abs(secondHalfStep.point.y - fullStep.point.y) / 15;
+  const k4 = evaluateStage(
+    expression,
+    start,
+    stagePoint(
+      start,
+      step,
+      4 / 5,
+      (44 / 45) * k1 - (56 / 15) * k2.value + (32 / 9) * k3.value
+    )
+  );
+  if (!k4.accepted) {
+    return rejectedStep(k4.cause);
+  }
+
+  const k5 = evaluateStage(
+    expression,
+    start,
+    stagePoint(
+      start,
+      step,
+      8 / 9,
+      (19372 / 6561) * k1 -
+        (25360 / 2187) * k2.value +
+        (64448 / 6561) * k3.value -
+        (212 / 729) * k4.value
+    )
+  );
+  if (!k5.accepted) {
+    return rejectedStep(k5.cause);
+  }
+
+  const k6 = evaluateStage(
+    expression,
+    start,
+    stagePoint(
+      start,
+      step,
+      1,
+      (9017 / 3168) * k1 -
+        (355 / 33) * k2.value +
+        (46732 / 5247) * k3.value +
+        (49 / 176) * k4.value -
+        (5103 / 18656) * k5.value
+    )
+  );
+  if (!k6.accepted) {
+    return rejectedStep(k6.cause);
+  }
+
+  const fifthOrderPoint = stagePoint(
+    start,
+    step,
+    1,
+    (35 / 384) * k1 +
+      (500 / 1113) * k3.value +
+      (125 / 192) * k4.value -
+      (2187 / 6784) * k5.value +
+      (11 / 84) * k6.value
+  );
+  const k7 = evaluateStage(expression, start, fifthOrderPoint);
+  if (!k7.accepted) {
+    return rejectedStep(k7.cause);
+  }
+
+  const fourthOrderY =
+    start.y +
+    step *
+      ((5179 / 57600) * k1 +
+        (7571 / 16695) * k3.value +
+        (393 / 640) * k4.value -
+        (92097 / 339200) * k5.value +
+        (187 / 2100) * k6.value +
+        (1 / 40) * k7.value);
+
+  if (!Number.isFinite(fourthOrderY)) {
+    return rejectedStep("non-finite");
+  }
+
   const tolerance =
-    settings.absoluteTolerance +
-    settings.relativeTolerance * Math.max(1, Math.abs(start.y), Math.abs(secondHalfStep.point.y));
+    Math.max(0, settings.absoluteTolerance) +
+    Math.max(0, settings.relativeTolerance) *
+      Math.max(Math.abs(start.y), Math.abs(fifthOrderPoint.y));
+  const errorEstimate = Math.abs(fifthOrderPoint.y - fourthOrderY);
+  const errorRatio = tolerance > 0 ? errorEstimate / tolerance : errorEstimate === 0 ? 0 : Infinity;
 
-  if (errorEstimate > tolerance) {
-    return { accepted: false };
+  if (!Number.isFinite(errorRatio) || errorRatio > 1) {
+    return {
+      accepted: false,
+      cause: "accuracy",
+      stepFactor: rejectedStepFactor(errorRatio)
+    };
   }
 
   return {
     accepted: true,
-    point: secondHalfStep.point,
-    errorEstimate,
-    tolerance
+    point: fifthOrderPoint,
+    endDerivative: k7.value,
+    stepFactor: acceptedStepFactor(errorRatio)
   };
 }
 
-function rk4GuardedStep(
+function stagePoint(
   start: CurvePoint,
   step: number,
-  expression: SolverExpression,
-  settings: SolverSettings,
-  evaluationOptions: EvaluationOptions
-): StepAttempt {
-  const k1 = evaluateDerivative(expression, start, evaluationOptions);
-  if (!k1.accepted) {
-    return { accepted: false };
-  }
-
-  const stage2 = {
-    t: start.t + step / 2,
-    y: start.y + (step * k1.value) / 2
-  };
-  const k2 = evaluateStage(expression, start, stage2, evaluationOptions);
-  if (!k2.accepted) {
-    return { accepted: false };
-  }
-
-  const stage3 = {
-    t: start.t + step / 2,
-    y: start.y + (step * k2.value) / 2
-  };
-  const k3 = evaluateStage(expression, start, stage3, evaluationOptions);
-  if (!k3.accepted) {
-    return { accepted: false };
-  }
-
-  const stage4 = {
-    t: start.t + step,
-    y: start.y + step * k3.value
-  };
-  const k4 = evaluateStage(expression, start, stage4, evaluationOptions);
-  if (!k4.accepted) {
-    return { accepted: false };
-  }
-
-  const point = {
-    t: start.t + step,
-    y: start.y + (step / 6) * (k1.value + 2 * k2.value + 2 * k3.value + k4.value)
-  };
-
-  if (!Number.isFinite(point.t) || !Number.isFinite(point.y)) {
-    return { accepted: false };
-  }
-
-  if (!checkSegment(expression, start, point, evaluationOptions)) {
-    return { accepted: false };
-  }
-
+  timeCoefficient: number,
+  weightedDerivative: number
+): CurvePoint {
   return {
-    accepted: true,
-    point,
-    errorEstimate: 0,
-    tolerance: 0
+    t: start.t + timeCoefficient * step,
+    y: start.y + step * weightedDerivative
   };
 }
 
 function evaluateStage(
-  expression: SolverExpression,
+  expression: PreparedSolverExpression,
   start: CurvePoint,
-  stage: CurvePoint,
-  evaluationOptions: EvaluationOptions
+  stage: CurvePoint
 ): DerivativeAttempt {
-  if (!checkSegment(expression, start, stage, evaluationOptions)) {
-    return { accepted: false };
+  if (!Number.isFinite(stage.t) || !Number.isFinite(stage.y)) {
+    return { accepted: false, cause: "non-finite" };
   }
 
-  return evaluateDerivative(expression, stage, evaluationOptions);
+  const segmentCheck = expression.checkSegmentDomain(start, stage);
+  if (!segmentCheck.ok) {
+    return { accepted: false, cause: "domain" };
+  }
+
+  return evaluateAtKnownDomainPoint(expression, stage);
 }
 
 function evaluateDerivative(
-  expression: SolverExpression,
-  point: CurvePoint,
-  evaluationOptions: EvaluationOptions
+  expression: PreparedSolverExpression,
+  point: CurvePoint
 ): DerivativeAttempt {
-  const diagnostics = expression.evaluateWithDiagnostics(
-    point.t,
-    point.y,
-    evaluationOptions
-  );
+  const pointDomain = expression.checkSegmentDomain(point, point);
+  if (!pointDomain.ok) {
+    return { accepted: false, cause: "domain" };
+  }
 
-  if (diagnostics.status !== "ok" || !Number.isFinite(diagnostics.value)) {
-    return { accepted: false };
+  return evaluateAtKnownDomainPoint(expression, point);
+}
+
+function evaluateAtKnownDomainPoint(
+  expression: PreparedSolverExpression,
+  point: CurvePoint
+): DerivativeAttempt {
+  const diagnostics = expression.evaluateWithDiagnostics(point.t, point.y);
+
+  if (diagnostics.status === "near-singular") {
+    return { accepted: false, cause: "domain" };
+  }
+
+  if (diagnostics.status === "invalid" || !Number.isFinite(diagnostics.value)) {
+    return { accepted: false, cause: "non-finite" };
   }
 
   return { accepted: true, value: diagnostics.value };
 }
 
-function checkSegment(
-  expression: SolverExpression,
-  start: CurvePoint,
-  end: CurvePoint,
-  evaluationOptions: EvaluationOptions
-): boolean {
-  return expression.checkSegmentDomain(start, end, evaluationOptions).ok;
+function rejectedStep(cause: Exclude<StepRejectionCause, "accuracy">): StepAttempt {
+  return {
+    accepted: false,
+    cause,
+    stepFactor: MAXIMUM_REDUCTION_FACTOR
+  };
 }
 
 function createEvaluationOptions(settings: SolverSettings): EvaluationOptions {
   return {
-    domainTolerance: settings.domainTolerance,
-    derivativeMagnitudeLimit: settings.derivativeMagnitudeLimit
+    domainTolerance: settings.domainTolerance
   };
 }
 
-function chooseNextStepSize(
-  current: number,
-  errorEstimate: number,
-  tolerance: number,
-  settings: SolverSettings
+function prepareSolverExpression(
+  expression: SolverExpression,
+  options: EvaluationOptions
+): PreparedSolverExpression {
+  if (expression.prepareEvaluation) {
+    return expression.prepareEvaluation(options);
+  }
+
+  return {
+    evaluateWithDiagnostics: (t, y) =>
+      expression.evaluateWithDiagnostics(t, y, options),
+    checkSegmentDomain: (start, end) =>
+      expression.checkSegmentDomain(start, end, options)
+  };
+}
+
+function acceptedStepFactor(errorRatio: number): number {
+  if (errorRatio === 0) {
+    return MAXIMUM_GROWTH_FACTOR;
+  }
+
+  return clamp(
+    SAFETY_FACTOR * errorRatio ** (-1 / 5),
+    MINIMUM_GROWTH_FACTOR,
+    MAXIMUM_GROWTH_FACTOR
+  );
+}
+
+function rejectedStepFactor(errorRatio: number): number {
+  if (!Number.isFinite(errorRatio) || errorRatio <= 0) {
+    return MINIMUM_REDUCTION_FACTOR;
+  }
+
+  return clamp(
+    SAFETY_FACTOR * errorRatio ** (-1 / 5),
+    MINIMUM_REDUCTION_FACTOR,
+    MAXIMUM_REDUCTION_FACTOR
+  );
+}
+
+function limitStepToVisibleYScale(
+  requestedStep: number,
+  derivative: number,
+  bounds: AxisBounds
 ): number {
-  if (errorEstimate <= tolerance * 0.02) {
-    return Math.min(settings.stepSize, current * 1.6);
+  if (derivative === 0) {
+    return requestedStep;
   }
 
-  if (errorEstimate <= tolerance * 0.25) {
-    return Math.min(settings.stepSize, current * 1.25);
+  const visibleYSpan = bounds.yMax - bounds.yMin;
+  const verticalScaleStep =
+    (VISIBLE_Y_STEP_FRACTION * visibleYSpan) / Math.abs(derivative);
+
+  if (!Number.isFinite(verticalScaleStep) || verticalScaleStep <= 0) {
+    return requestedStep;
   }
 
-  return current;
+  return Math.min(requestedStep, verticalScaleStep);
+}
+
+function normalizedMaximumStep(settings: SolverSettings, bounds: AxisBounds): number {
+  const fallback = (bounds.tMax - bounds.tMin) / 160;
+  return Number.isFinite(settings.stepSize) && settings.stepSize > 0
+    ? settings.stepSize
+    : fallback;
+}
+
+function normalizedMinimumStep(
+  settings: SolverSettings,
+  bounds: AxisBounds,
+  maximumStep: number
+): number {
+  const fallback = (bounds.tMax - bounds.tMin) / 1e10;
+  const configured =
+    Number.isFinite(settings.minStepSize) && settings.minStepSize > 0
+      ? settings.minStepSize
+      : fallback;
+
+  return Math.min(configured, maximumStep);
+}
+
+function timeResolution(left: number, right: number): number {
+  return 8 * Number.EPSILON * Math.max(1, Math.abs(left), Math.abs(right));
+}
+
+function terminationForRejection(
+  cause: Exclude<StepRejectionCause, "accuracy">
+): TerminationReason {
+  return cause === "domain" ? "singularity" : "invalid-value";
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
 }
 
 function clipSegmentToVerticalBounds(
@@ -308,10 +513,19 @@ function clipSegmentToVerticalBounds(
   end: CurvePoint,
   bounds: AxisBounds
 ): CurvePoint | null {
-  const targetY = end.y < bounds.yMin ? bounds.yMin : bounds.yMax;
+  let targetY: number;
+
+  if (end.y < bounds.yMin) {
+    targetY = bounds.yMin;
+  } else if (end.y > bounds.yMax) {
+    targetY = bounds.yMax;
+  } else {
+    return null;
+  }
+
   const deltaY = end.y - start.y;
 
-  if (Math.abs(deltaY) < 1e-12) {
+  if (Math.abs(deltaY) < Number.EPSILON) {
     return null;
   }
 
@@ -327,18 +541,19 @@ function clipSegmentToVerticalBounds(
 }
 
 function selectTerminationReason(backward: TraceResult, forward: TraceResult): TerminationReason {
-  const candidates: TerminationReason[] = [
+  const candidates = new Set<TerminationReason>([
     forward.terminationReason,
     backward.terminationReason
+  ]);
+  const priority: TerminationReason[] = [
+    "solver-error",
+    "invalid-value",
+    "step-underflow",
+    "singularity",
+    "max-steps",
+    "vertical-boundary",
+    "domain-limit"
   ];
 
-  if (candidates.includes("singularity")) {
-    return "singularity";
-  }
-
-  return (
-    candidates.find((reason) => reason !== "domain-limit") ??
-    candidates.find((reason) => reason === "domain-limit") ??
-    "domain-limit"
-  );
+  return priority.find((reason) => candidates.has(reason)) ?? "domain-limit";
 }

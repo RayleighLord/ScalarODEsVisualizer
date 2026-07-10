@@ -77,6 +77,7 @@ The current product goals are:
 - X-axis labels and the `t` label should sit low enough to avoid clashing visually with the slope field.
 - Changing the window size must not leave the plot ticks or axis labels misaligned; responsive resizes should preserve their correct positions.
 - Prefer a flatter, cleaner plot background over decorative color washes when the latter do not look good.
+- Use a crosshair cursor over the clickable plotting region so its point-selection behavior is immediately apparent.
 - Clicking should feel forgiving: snap near important targets such as equilibrium lines and visible axes when that improves usability.
 - Equilibrium-line snapping should be gentler than general axis snapping so clicks near a fixed line do not attach too aggressively.
 - If the phase-flow rail is shown, it should feel visually integrated with the plot rather than like a separate bright widget.

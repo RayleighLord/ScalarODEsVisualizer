@@ -16,6 +16,8 @@ const SLOPE_EVALUATION_OPTIONS = {
   domainTolerance: 1e-8,
   derivativeMagnitudeLimit: 1e6
 } as const;
+const X_TICK_LABEL_OFFSET = 28;
+const X_AXIS_LABEL_BOTTOM_INSET = 20;
 const CURVE_PALETTE = [
   { stroke: "#2f80ed", seed: "#70aaf5", halo: "rgba(47, 128, 237, 0.24)" },
   { stroke: "#16a085", seed: "#5bc6ae", halo: "rgba(22, 160, 133, 0.24)" },
@@ -80,7 +82,7 @@ export class ODEPlotRenderer {
       padding: {
         top: 56,
         right: 26,
-        bottom: 56,
+        bottom: 88,
         left: 118
       }
     };
@@ -558,7 +560,7 @@ export class ODEPlotRenderer {
             className: "plot-latex-label tick-label"
           }),
           svgX: position.x,
-          svgY: coordinates.innerTop + coordinates.innerHeight + 42
+          svgY: coordinates.innerTop + coordinates.innerHeight + X_TICK_LABEL_OFFSET
         });
       });
 
@@ -585,7 +587,7 @@ export class ODEPlotRenderer {
             className: "plot-latex-label axis-label"
           }),
           svgX: coordinates.innerLeft + coordinates.innerWidth / 2,
-          svgY: this.layout.height + 10
+          svgY: this.layout.height - X_AXIS_LABEL_BOTTOM_INSET
         },
         {
           element: createLatexOverlayLabel({

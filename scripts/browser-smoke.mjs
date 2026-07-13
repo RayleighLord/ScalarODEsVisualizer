@@ -182,28 +182,58 @@ async function assertAnnotationOnlyResize(page) {
     document.querySelector(".plot-latex-label")?.setAttribute("data-resize-retained", "yes");
   });
 
-  await page.setViewportSize({ width: 1180, height: 780 });
-  await page.waitForTimeout(100);
+  const viewportSizes = [
+    { width: 1180, height: 780 },
+    { width: 1440, height: 900 },
+    { width: 1920, height: 1080 },
+    { width: 1536, height: 730 },
+    { width: 1280, height: 650 }
+  ];
 
-  assert.equal(
-    await page.locator('[data-layer="slopes"] path').getAttribute("data-resize-retained"),
-    "yes",
-    "Resize must not rebuild SVG geometry."
-  );
-  assert.equal(
-    await page.locator(".plot-latex-label").first().getAttribute("data-resize-retained"),
-    "yes",
-    "Resize must reposition rather than rebuild annotations."
-  );
+  for (const viewport of viewportSizes) {
+    await page.setViewportSize(viewport);
+    await page.waitForTimeout(100);
 
-  const stage = await page.locator(".plot-stage").boundingBox();
-  const labels = await page.locator(".plot-latex-label").all();
-  assert.ok(stage);
-  for (const label of labels) {
-    const box = await label.boundingBox();
-    assert.ok(box, "Every plot annotation should remain visible after resize.");
-    assert.ok(box.x + box.width >= stage.x - 4 && box.x <= stage.x + stage.width + 4);
-    assert.ok(box.y + box.height >= stage.y - 4 && box.y <= stage.y + stage.height + 24);
+    assert.equal(
+      await page.locator('[data-layer="slopes"] path').getAttribute("data-resize-retained"),
+      "yes",
+      "Resize must not rebuild SVG geometry."
+    );
+    assert.equal(
+      await page.locator(".plot-latex-label").first().getAttribute("data-resize-retained"),
+      "yes",
+      "Resize must reposition rather than rebuild annotations."
+    );
+
+    const stage = await page.locator(".plot-stage").boundingBox();
+    const labels = await page.locator(".plot-latex-label .katex").all();
+    const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+    assert.ok(stage);
+    assert.ok(
+      stage.y + stage.height <= viewport.height + 1,
+      `The plot stage must fit inside the ${viewport.width}x${viewport.height} viewport.`
+    );
+    assert.ok(
+      documentHeight <= viewport.height + 1,
+      `Desktop layout must not push plot annotations below the ${viewport.width}x${viewport.height} viewport.`
+    );
+
+    for (const label of labels) {
+      const box = await label.boundingBox();
+      assert.ok(box, "Every plot annotation should remain visible after resize.");
+      assert.ok(
+        box.x >= stage.x - 4 && box.x + box.width <= stage.x + stage.width + 4,
+        `Plot annotation must remain horizontally inside the stage at ${viewport.width}x${viewport.height}.`
+      );
+      assert.ok(
+        box.y >= stage.y - 4 && box.y + box.height <= stage.y + stage.height + 4,
+        `Plot annotation must remain vertically inside the stage at ${viewport.width}x${viewport.height}.`
+      );
+      assert.ok(
+        box.y >= -1 && box.y + box.height <= viewport.height + 1,
+        `Plot annotation must remain inside the visible viewport at ${viewport.width}x${viewport.height}.`
+      );
+    }
   }
 }
 

@@ -75,7 +75,7 @@ The current product goals are:
 - Plot numbers and axis labels should also use LaTeX styling.
 - Plot numbers and axis labels should be visually a bit larger rather than delicate or tiny.
 - X-axis labels and the `t` label should sit low enough to avoid clashing visually with the slope field.
-- Changing the window size must not leave the plot ticks or axis labels misaligned; responsive resizes should preserve their correct positions.
+- Changing the window size must not leave the plot ticks or axis labels misaligned or clipped; responsive resizes should preserve their correct positions.
 - Prefer a flatter, cleaner plot background over decorative color washes when the latter do not look good.
 - Use a crosshair cursor over the clickable plotting region so its point-selection behavior is immediately apparent.
 - Clicking should feel forgiving: snap near important targets such as equilibrium lines and visible axes when that improves usability.
@@ -88,7 +88,7 @@ The current product goals are:
 - For UI/layout changes, do not rely only on code inspection.
 - Use browser-based visual inspection as part of the feedback loop.
 - Prefer Playwright-based verification for layout-sensitive changes.
-- Check realistic desktop/laptop viewports such as `1180x780` and `1440x900`, not only large screens.
+- Check realistic desktop/laptop viewports such as `1180x780`, `1440x900`, and `1920x1080`, plus a shorter effective viewport such as `1536x730` for scaled 1080p displays.
 - Run `npm run test:browser` for changes that affect interactions, rendering, responsive layout, expression editing, or production assets. The smoke script builds the production site before exercising it in Chromium.
 - Use `output/playwright/browser-smoke.png` as a quick artifact check, but still inspect a headed browser when making substantial visual changes.
 - When adjusting layout, confirm that the actual rendered page matches the intended result before considering the task complete.

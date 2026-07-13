@@ -77,6 +77,20 @@ code {
   min-height: 100vh;
 }
 
+@media (min-width: 981px) {
+  .app-shell {
+    grid-template-rows: minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+  }
+
+  .control-panel {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
 .panel {
   backdrop-filter: blur(14px);
   background: var(--panel-surface);
@@ -551,7 +565,7 @@ button:hover {
   .app-shell {
     grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
     padding-block: 0.12rem;
-    min-height: 100vh;
+    min-height: 0;
   }
 
   .panel-heading h1 {
@@ -609,10 +623,6 @@ button:hover {
   .phase-flow-legend {
     font-size: 0.71rem;
     gap: 0.34rem 0.5rem;
-  }
-
-  .plot-stage {
-    min-height: 490px;
   }
 }
 

@@ -192,7 +192,7 @@ async function assertAnnotationOnlyResize(page) {
 
   for (const viewport of viewportSizes) {
     await page.setViewportSize(viewport);
-    await page.waitForTimeout(100);
+    await waitForResizeRender(page);
 
     assert.equal(
       await page.locator('[data-layer="slopes"] path').getAttribute("data-resize-retained"),
@@ -235,6 +235,19 @@ async function assertAnnotationOnlyResize(page) {
       );
     }
   }
+}
+
+async function waitForResizeRender(page) {
+  // ResizeObserver schedules annotation positioning in an animation frame.
+  // Cross one additional frame before reading geometry so CI cannot sample stale coordinates.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      })
+  );
 }
 
 async function assertEquilibriumIntervalRendering(page) {

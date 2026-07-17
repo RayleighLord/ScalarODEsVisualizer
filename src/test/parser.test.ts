@@ -48,6 +48,18 @@ describe("compileExpression", () => {
     expect(second.latex).toBe("\\sin\\left(t\\right) - y^{2}");
   });
 
+  it("places a whole-numerator minus before a rendered fraction", () => {
+    expect(compileExpression("-y/2").latex).toBe("-\\frac{y}{2}");
+    expect(compileExpression("(-y)/(-2)").latex).toBe("-\\frac{y}{-2}");
+    expect(compileExpression("-(y/2)").latex).toBe(
+      "-\\left(\\frac{y}{2}\\right)"
+    );
+    expect(compileExpression("y/-t").latex).toBe("\\frac{y}{-t}");
+    expect(compileExpression("-(y + t)/2").latex).toBe(
+      "-\\frac{y + t}{2}"
+    );
+  });
+
   it("rejects malformed expressions", () => {
     expect(() => compileExpression("sin(")).toThrow();
     expect(() => compileExpression("foo + y")).toThrow();

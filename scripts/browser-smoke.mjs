@@ -451,6 +451,9 @@ async function assertAnnotationOnlyResize(page) {
   });
 
   const viewportSizes = [
+    { width: 2560, height: 1284 },
+    { width: 2304, height: 1284 },
+    { width: 760, height: 700 },
     { width: 960, height: 720 },
     { width: 1180, height: 780 },
     { width: 1440, height: 900 },
@@ -494,6 +497,34 @@ async function assertAnnotationOnlyResize(page) {
     assert.ok(
       !boxesOverlap(equationPanel, equationBanner),
       `The equation editor and rendered equation must not overlap at ${viewport.width}x${viewport.height}.`
+    );
+
+    const expectedControlScale =
+      viewport.width <= 760
+        ? 1
+        : Math.min(1, Math.max(0.8, Math.min(viewport.width / 2560, viewport.height / 1284)));
+    const controlScaleState = await page.evaluate(() => ({
+      customProperty: Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue("--corner-control-scale")
+      ),
+      controls: Array.from(
+        document.querySelectorAll(".equation-panel, .left-control-stack, .equilibria-panel")
+      ).map((element) => Number.parseFloat(getComputedStyle(element).scale))
+    }));
+    assert.ok(
+      Math.abs(controlScaleState.customProperty - expectedControlScale) < 1e-6,
+      `The corner-control scale variable must track the viewport at ${viewport.width}x${viewport.height}.`
+    );
+    controlScaleState.controls.forEach((scale) => {
+      assert.ok(
+        Math.abs(scale - expectedControlScale) < 1e-6,
+        `Corner controls must use the expected fluid scale at ${viewport.width}x${viewport.height}.`
+      );
+    });
+    assert.equal(
+      await page.locator(".plot-ode-preview").evaluate((element) => getComputedStyle(element).scale),
+      "none",
+      `The centered equation must remain full-size at ${viewport.width}x${viewport.height}.`
     );
 
     for (const label of labels) {

@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  --corner-control-scale: 1;
   --page-ink: #202c36;
   --muted-ink: #687984;
   --panel-surface: rgba(255, 255, 252, 0.9);
@@ -119,6 +120,8 @@ button {
   gap: 0.58rem;
   width: min(25rem, calc(100vw - 1.1rem));
   padding: 0.84rem 0.9rem 0.72rem;
+  scale: var(--corner-control-scale);
+  transform-origin: top left;
 }
 
 .equation-heading {
@@ -305,6 +308,8 @@ button:focus-visible,
   gap: 0.38rem;
   width: min(19.5rem, calc(100vw - 1.1rem));
   justify-items: start;
+  scale: var(--corner-control-scale);
+  transform-origin: bottom left;
 }
 
 .left-control-stack:has(.bounds-panel[hidden]) {
@@ -455,6 +460,8 @@ input[type="number"]::-webkit-outer-spin-button {
   gap: 0.52rem;
   width: min(21rem, calc(100vw - 1.1rem));
   padding: 0.76rem 0.82rem;
+  scale: var(--corner-control-scale);
+  transform-origin: bottom right;
 }
 
 .equilibria-panel .panel-title {
@@ -791,6 +798,12 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 @media (max-width: 760px) {
+  .equation-panel,
+  .left-control-stack,
+  .equilibria-panel {
+    scale: 1;
+  }
+
   .plot-equation-banner {
     top: 0.42rem;
   }

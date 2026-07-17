@@ -9,6 +9,10 @@ const SEED_EVALUATION_OPTIONS = {
   domainTolerance: 1e-8
 } as const;
 const EXPRESSION_DEBOUNCE_MS = 150;
+const CORNER_CONTROL_REFERENCE_WIDTH = 2560;
+const CORNER_CONTROL_REFERENCE_HEIGHT = 1284;
+const MIN_CORNER_CONTROL_SCALE = 0.8;
+const MOBILE_LAYOUT_MAX_WIDTH = 760;
 
 export function startApp(): void {
   const equationInput = getElement<HTMLInputElement>("equation-input");
@@ -52,6 +56,27 @@ export function startApp(): void {
   let pendingExpressionTimer = 0;
   let pendingExpression: string | null = null;
   let syncedBounds: AxisBounds | null = null;
+  let appliedCornerControlScale = "";
+
+  const updateCornerControlScale = () => {
+    const viewportScale = Math.min(
+      window.innerWidth / CORNER_CONTROL_REFERENCE_WIDTH,
+      window.innerHeight / CORNER_CONTROL_REFERENCE_HEIGHT
+    );
+    const scale =
+      window.innerWidth <= MOBILE_LAYOUT_MAX_WIDTH
+        ? 1
+        : Math.min(1, Math.max(MIN_CORNER_CONTROL_SCALE, viewportScale));
+    const serializedScale = `${scale}`;
+    if (serializedScale === appliedCornerControlScale) {
+      return;
+    }
+
+    document.documentElement.style.setProperty("--corner-control-scale", serializedScale);
+    appliedCornerControlScale = serializedScale;
+  };
+
+  updateCornerControlScale();
 
   const scheduleAnnotationResize = () => {
     if (pendingResizeFrame !== 0) {
@@ -98,6 +123,7 @@ export function startApp(): void {
   });
 
   const resizeObserver = new ResizeObserver(() => {
+    updateCornerControlScale();
     scheduleAnnotationResize();
   });
   if (plot.parentElement) {

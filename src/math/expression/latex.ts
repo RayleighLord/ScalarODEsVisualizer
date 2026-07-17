@@ -35,10 +35,21 @@ function renderBinaryNodeAsLatex(
     case "*":
       return `${renderMultiplicativeOperand(node.left)} \\cdot ${renderMultiplicativeOperand(node.right)}`;
     case "/":
-      return `\\frac{${renderNodeAsLatex(node.left)}}{${renderNodeAsLatex(node.right)}}`;
+      return renderQuotientAsLatex(node.left, node.right);
     case "^":
       return `${renderPowerBase(node.left)}^{${renderNodeAsLatex(node.right)}}`;
   }
+}
+
+function renderQuotientAsLatex(
+  numerator: ExpressionNode,
+  denominator: ExpressionNode
+): string {
+  if (numerator.type === "unary" && numerator.operator === "-") {
+    return `-\\frac{${renderNodeAsLatex(numerator.argument)}}{${renderNodeAsLatex(denominator)}}`;
+  }
+
+  return `\\frac{${renderNodeAsLatex(numerator)}}{${renderNodeAsLatex(denominator)}}`;
 }
 
 function renderFunctionNodeAsLatex(

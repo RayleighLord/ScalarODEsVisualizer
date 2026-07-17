@@ -33,11 +33,12 @@ Current defaults:
 ## UI And Interaction Contract
 
 - Keep the application light-only. The off-white direction-field plane fills the viewport edge to edge; controls are compact floating cards, never a permanent sidebar, framed chart, or padded plot.
+- Preserve fluid desktop control scaling against the 2560×1284 reference viewport: use `clamp(0.8, min(viewport width / 2560, viewport height / 1284), 1)` for the three corner control groups. Keep their corner anchors fixed, leave the centered equation pill unchanged, and use full-size controls for the mobile layout at 760px wide or less.
 - Use faint neutral minor lines, quiet teal major lines, and stronger charcoal zero axes. Nice major spacing remains adaptive; the default window produces unit major intervals on both axes. Divide each major interval into five equal subdivisions.
 - Sample short, thin gray direction marks at interior grid intersections so edge marks are not clipped.
 - Render large KaTeX tick and axis labels inside the plotting plane beside the real zero axes. If zero is outside the window, clamp labels to the nearest edge without inventing an edge axis. Suppress the duplicate origin label and preserve alignment on resize.
 - Keep the title/editor at top left, rendered equation pill at top center, two-row window controls at bottom left, and equilibrium information with `Show phase flow` at bottom right.
-- The editor identifies the application as `Scalar Differential Equation`, includes the first-order-ODE eyebrow and rendered `y'=f(y,t)` hint, and uses a KaTeX `y'=` prefix.
+- The editor identifies the application as `Scalar Differential Equation`, includes the first-order-ODE eyebrow and rendered `y'=f(y,t)` hint, and uses a KaTeX `y'=` prefix. Keep generated LaTeX conventional; for example, put a whole-numerator minus before its fraction.
 - Window controls place `t_{\min},t_{\max}` on one row and `y_{\min},y_{\max}` on the next, with KaTeX labels, Clear curves, and Reset.
 - The equilibrium card shows the KaTeX criterion and actual constant solutions or intervals. Do not show a curve counter. Isolated equilibria are thick solid black lines; continuous families are restrained bands.
 - Keep shortcut guidance in the small non-modal Help popover above the lower-left utility controls; do not add a permanent interaction panel.

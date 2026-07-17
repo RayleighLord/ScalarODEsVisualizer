@@ -187,6 +187,58 @@ describe("solveIntegralCurve", () => {
     expect(trajectory.points.at(-1)!.y).toBe(bounds.yMin);
   });
 
+  it("integrates across a tiny representable time window near zero", () => {
+    const bounds: AxisBounds = {
+      tMin: 0,
+      tMax: 1e-16,
+      yMin: -1,
+      yMax: 1
+    };
+    const seed: CurveSeed = {
+      id: "seed",
+      t: 5e-17,
+      y: 0
+    };
+
+    const trajectory = solveIntegralCurve(
+      seed,
+      bounds,
+      compileExpression("0"),
+      createSolverSettings(bounds)
+    );
+
+    expect(trajectory.points.length).toBeGreaterThan(1);
+    expect(trajectory.points[0]).toEqual({ t: bounds.tMin, y: seed.y });
+    expect(trajectory.points.at(-1)).toEqual({ t: bounds.tMax, y: seed.y });
+    expect(trajectory.terminationReason).toBe("domain-limit");
+  });
+
+  it("reaches both bounds across a representable window at a large time offset", () => {
+    const bounds: AxisBounds = {
+      tMin: 1e16,
+      tMax: 1e16 + 20,
+      yMin: -1,
+      yMax: 1
+    };
+    const seed: CurveSeed = {
+      id: "seed",
+      t: 1e16 + 10,
+      y: 0
+    };
+
+    const trajectory = solveIntegralCurve(
+      seed,
+      bounds,
+      compileExpression("0"),
+      createSolverSettings(bounds)
+    );
+
+    expect(trajectory.points.length).toBeGreaterThan(1);
+    expect(trajectory.points[0]).toEqual({ t: bounds.tMin, y: seed.y });
+    expect(trajectory.points.at(-1)).toEqual({ t: bounds.tMax, y: seed.y });
+    expect(trajectory.terminationReason).toBe("domain-limit");
+  });
+
   it("resolves steep finite slopes without classifying them as singular", () => {
     const bounds: AxisBounds = {
       tMin: -1,

@@ -3,139 +3,194 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Explore direction fields, equilibrium solutions, and integral curves for scalar first-order ODEs."
+    />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <title>Integral Curve Explorer</title>
+    <title>Scalar Differential Equation Explorer</title>
   </head>
   <body>
     <div class="app-shell">
-      <aside class="panel control-panel">
-        <div class="panel-heading">
-          <p class="eyebrow">Scalar ODE Explorer</p>
-          <h1>
-            Integral curves for equations of the form
-            <span id="hero-equation" class="title-equation"></span>
-          </h1>
-          <p class="panel-copy">
-            Enter an ODE, set the visible window, and click in the plot to trace the solution
-            curve through that point.
-          </p>
-        </div>
+      <main class="plot-panel" aria-labelledby="app-title">
+        <div class="plot-stage">
+          <svg
+            id="ode-plot"
+            viewBox="0 0 1280 720"
+            preserveAspectRatio="none"
+            role="img"
+            aria-labelledby="plot-title plot-description"
+          >
+            <title id="plot-title">Interactive direction field and integral curves</title>
+            <desc id="plot-description">
+              A full-page direction field with axes, equilibrium solutions, and integral curves.
+            </desc>
+          </svg>
 
-        <section class="card">
-          <label class="field">
-            <span class="field-label">ODE right-hand side</span>
-            <textarea
-              id="equation-input"
-              class="equation-input"
-              rows="2"
-              spellcheck="false"
-              aria-label="ODE right-hand side"
-            ></textarea>
-          </label>
-          <p class="field-help">
-            Use <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>^</code>,
-            parentheses, and functions such as <code>sin</code>, <code>cos</code>,
-            <code>exp</code>, <code>log</code>, <code>sqrt</code>, <code>abs</code>.
-          </p>
-        </section>
-
-        <form id="bounds-form" class="card" novalidate>
-          <div class="section-header">
-            <h2>Visible window</h2>
-            <button id="apply-bounds-button" class="secondary-button" type="submit">
-              Update view
-            </button>
+          <div class="plot-equation-banner">
+            <div id="plot-ode-preview" class="plot-ode-preview" aria-live="polite"></div>
           </div>
 
-          <div class="bounds-grid">
-            <label class="field">
-              <span class="field-label">t min</span>
-              <input id="t-min-input" name="tMin" type="number" step="any" />
+          <section
+            class="floating-panel equation-panel"
+            aria-label="Differential equation"
+            data-ui-overlay
+          >
+            <header class="equation-heading">
+              <p class="equation-eyebrow">First-order ODE explorer</p>
+              <h1 id="app-title">Scalar Differential Equation</h1>
+              <p class="equation-family">
+                <span>Equations of the form</span>
+                <span id="equation-family-math" class="equation-family-math"></span>
+              </p>
+            </header>
+            <label class="equation-field" for="equation-input">
+              <span id="equation-input-prefix" class="equation-prefix" aria-hidden="true"></span>
+              <input
+                id="equation-input"
+                class="equation-input"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                aria-label="ODE right-hand side"
+              />
             </label>
-            <label class="field">
-              <span class="field-label">t max</span>
-              <input id="t-max-input" name="tMax" type="number" step="any" />
-            </label>
-            <label class="field">
-              <span class="field-label">y min</span>
-              <input id="y-min-input" name="yMin" type="number" step="any" />
-            </label>
-            <label class="field">
-              <span class="field-label">y max</span>
-              <input id="y-max-input" name="yMax" type="number" step="any" />
-            </label>
-          </div>
-        </form>
-
-        <div class="compact-card-grid">
-          <section class="card">
-            <div class="button-row">
-              <button id="reset-button" class="primary-button" type="button">Reset example</button>
-              <button id="clear-curves-button" class="ghost-button" type="button">
-                Clear curves
-              </button>
+            <div class="equation-meta" aria-live="polite">
+              <span id="equation-status" class="status-chip"></span>
+              <span id="equation-type" class="equation-type"></span>
             </div>
           </section>
 
-          <section class="card">
+          <div class="left-control-stack">
+            <nav class="utility-dock" aria-label="View and help controls">
+              <button
+                id="toggle-ui-button"
+                class="utility-button"
+                type="button"
+                aria-pressed="false"
+              >
+                Hide UI
+              </button>
+              <button
+                id="help-button"
+                class="utility-button utility-icon-button"
+                type="button"
+                aria-haspopup="dialog"
+                aria-controls="help-popover"
+                aria-expanded="false"
+                aria-label="Show interaction help"
+              >
+                ?
+              </button>
+            </nav>
+
+            <section
+              id="help-popover"
+              class="help-popover"
+              role="dialog"
+              aria-labelledby="help-title"
+              hidden
+            >
+              <div class="help-popover-heading">
+                <div>
+                  <p class="equation-eyebrow">Interaction guide</p>
+                  <h2 id="help-title">Quick controls</h2>
+                </div>
+                <button
+                  id="help-close-button"
+                  class="help-close-button"
+                  type="button"
+                  aria-label="Close help"
+                >
+                  ×
+                </button>
+              </div>
+              <ul class="shortcut-list">
+                <li><kbd>Click</kbd><span>Add a curve.</span></li>
+                <li><kbd>Right-click</kbd><span>Remove the nearest.</span></li>
+                <li><kbd>Shift + Right-click</kbd><span>Clear all curves.</span></li>
+                <li><kbd>Window edit</kbd><span>Apply limits live.</span></li>
+              </ul>
+            </section>
+
+            <form
+              id="bounds-form"
+              class="floating-panel bounds-panel"
+              aria-label="Visible axis limits"
+              data-ui-overlay
+              novalidate
+            >
+              <div class="panel-heading-row">
+                <span class="panel-title">Window</span>
+                <div class="button-row">
+                  <button id="clear-curves-button" class="quiet-button" type="button">
+                    Clear curves
+                  </button>
+                  <button
+                    id="reset-button"
+                    class="icon-button"
+                    type="button"
+                    aria-label="Reset example"
+                    title="Reset example"
+                  >
+                    ↺
+                  </button>
+                </div>
+              </div>
+
+              <div class="bounds-grid">
+                <label class="bound-field">
+                  <span class="bound-symbol" data-static-latex="t_{\min}"></span>
+                  <input id="t-min-input" name="tMin" type="number" step="any" aria-label="t minimum" />
+                </label>
+                <label class="bound-field">
+                  <span class="bound-symbol" data-static-latex="t_{\max}"></span>
+                  <input id="t-max-input" name="tMax" type="number" step="any" aria-label="t maximum" />
+                </label>
+                <label class="bound-field">
+                  <span class="bound-symbol" data-static-latex="y_{\min}"></span>
+                  <input id="y-min-input" name="yMin" type="number" step="any" aria-label="y minimum" />
+                </label>
+                <label class="bound-field">
+                  <span class="bound-symbol" data-static-latex="y_{\max}"></span>
+                  <input id="y-max-input" name="yMax" type="number" step="any" aria-label="y maximum" />
+                </label>
+              </div>
+            </form>
+          </div>
+
+          <aside
+            class="floating-panel equilibria-panel"
+            aria-label="Equilibrium information"
+            data-ui-overlay
+          >
+            <div class="panel-heading-row">
+              <span class="panel-title">Equilibria</span>
+              <span class="equilibrium-condition" data-static-latex="f(y_\ast)=0"></span>
+            </div>
+
+            <p id="equilibrium-summary" class="equilibrium-summary"></p>
+            <div id="equilibrium-solutions" class="equilibrium-solutions"></div>
+            <ul id="notice-list" class="notice-list"></ul>
+
             <label class="toggle-row" for="phase-flow-toggle">
-              <span>
-                <span class="toggle-title">Show phase flow</span>
-                <span class="toggle-copy">Autonomous equations only.</span>
-              </span>
+              <span class="toggle-title">Show phase flow</span>
               <input id="phase-flow-toggle" class="toggle-input" type="checkbox" />
               <span class="toggle-pill" aria-hidden="true"></span>
             </label>
-            <div class="phase-flow-legend" aria-hidden="true">
+
+            <div class="phase-flow-legend" aria-label="Phase-flow marker key">
               <span class="legend-item"><span class="legend-marker stable"></span> stable</span>
               <span class="legend-item"><span class="legend-marker unstable"></span> unstable</span>
               <span class="legend-item"><span class="legend-marker semistable"></span> semistable</span>
             </div>
-          </section>
-        </div>
-
-        <section class="card status-card">
-          <div class="status-row">
-            <span class="status-label">Equation</span>
-            <span id="equation-status" class="status-chip"></span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">Equation type</span>
-            <span id="equation-type" class="status-value"></span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">Equilibria</span>
-            <span id="equilibrium-summary" class="status-value"></span>
-          </div>
-          <div id="equilibrium-solutions" class="equilibrium-solutions"></div>
-          <div class="status-row">
-            <span class="status-label">Curves shown</span>
-            <span id="curve-count" class="status-value"></span>
-          </div>
-          <ul id="notice-list" class="notice-list"></ul>
-        </section>
-      </aside>
-
-      <main class="panel plot-panel">
-        <div class="plot-header">
-          <p class="eyebrow">Direction field</p>
-          <p class="plot-help">Click anywhere inside the frame to add an integral curve.</p>
-        </div>
-        <div class="plot-stage">
-          <div class="plot-equation-banner">
-            <div id="plot-ode-preview" class="plot-ode-preview" aria-live="polite"></div>
-          </div>
-          <svg
-            id="ode-plot"
-            viewBox="0 0 960 640"
-            role="img"
-            aria-label="Interactive slope field and integral curves"
-          ></svg>
+          </aside>
         </div>
       </main>
+
     </div>
 
     <script type="module" src="/src/main.ts"></script>

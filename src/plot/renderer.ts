@@ -5,7 +5,11 @@ import {
   type PhaseFlowBand
 } from "./phaseFlow";
 import { snapPointToTargets } from "./snap";
-import { computeNiceTicks, formatTickLatex } from "./ticks";
+import {
+  computeNiceTickLayout,
+  formatTickLatex,
+  type NiceTickLayout
+} from "./ticks";
 import type { CompiledExpression } from "../math/parser";
 import type { CurvePoint, EquilibriumResult, IntegralCurve, PlotLayout } from "../types";
 import type { ViewModel } from "../ui/controller";
@@ -16,37 +20,32 @@ const SLOPE_EVALUATION_OPTIONS = {
   domainTolerance: 1e-8,
   derivativeMagnitudeLimit: 1e6
 } as const;
-const X_TICK_LABEL_OFFSET = 28;
-const X_AXIS_LABEL_BOTTOM_INSET = 20;
+const X_GRID_TARGET = 12;
+const Y_GRID_TARGET = 6;
+const GRID_MINOR_DIVISIONS = 5;
+const ANNOTATION_EDGE_INSET = 8;
+const ANNOTATION_COLLISION_GAP = 6;
 const CURVE_PALETTE = [
-  { stroke: "#2f80ed", seed: "#70aaf5", halo: "rgba(47, 128, 237, 0.24)" },
-  { stroke: "#16a085", seed: "#5bc6ae", halo: "rgba(22, 160, 133, 0.24)" },
-  { stroke: "#8e44ad", seed: "#b47acb", halo: "rgba(142, 68, 173, 0.24)" },
-  { stroke: "#e67e22", seed: "#f0aa64", halo: "rgba(230, 126, 34, 0.24)" },
-  { stroke: "#c0392b", seed: "#dd7468", halo: "rgba(192, 57, 43, 0.24)" },
-  { stroke: "#27ae60", seed: "#69cb90", halo: "rgba(39, 174, 96, 0.24)" },
-  { stroke: "#2980b9", seed: "#68a6cf", halo: "rgba(41, 128, 185, 0.24)" },
-  { stroke: "#d35400", seed: "#e58b52", halo: "rgba(211, 84, 0, 0.24)" },
-  { stroke: "#6c5ce7", seed: "#998ff0", halo: "rgba(108, 92, 231, 0.24)" },
-  { stroke: "#2d98da", seed: "#73b7e4", halo: "rgba(45, 152, 218, 0.24)" },
-  { stroke: "#38ada9", seed: "#79cbc8", halo: "rgba(56, 173, 169, 0.24)" },
-  { stroke: "#b71540", seed: "#cf5d7d", halo: "rgba(183, 21, 64, 0.24)" },
-  { stroke: "#f39c12", seed: "#f7bd58", halo: "rgba(243, 156, 18, 0.24)" },
-  { stroke: "#1abc9c", seed: "#62d3be", halo: "rgba(26, 188, 156, 0.24)" },
-  { stroke: "#3867d6", seed: "#7492e2", halo: "rgba(56, 103, 214, 0.24)" },
-  { stroke: "#6ab04c", seed: "#99c985", halo: "rgba(106, 176, 76, 0.24)" },
-  { stroke: "#e056fd", seed: "#ea8bff", halo: "rgba(224, 86, 253, 0.24)" },
-  { stroke: "#eb4d4b", seed: "#f08280", halo: "rgba(235, 77, 75, 0.24)" },
-  { stroke: "#22a6b3", seed: "#6fc2cb", halo: "rgba(34, 166, 179, 0.24)" },
-  { stroke: "#be2edd", seed: "#d678eb", halo: "rgba(190, 46, 221, 0.24)" },
-  { stroke: "#e58e26", seed: "#ecb066", halo: "rgba(229, 142, 38, 0.24)" },
-  { stroke: "#0097e6", seed: "#5dbbeb", halo: "rgba(0, 151, 230, 0.24)" },
-  { stroke: "#44bd32", seed: "#7ed271", halo: "rgba(68, 189, 50, 0.24)" },
-  { stroke: "#c23616", seed: "#d86f58", halo: "rgba(194, 54, 22, 0.24)" },
-  { stroke: "#40739e", seed: "#7893b1", halo: "rgba(64, 115, 158, 0.24)" },
-  { stroke: "#7f8c8d", seed: "#a8b2b3", halo: "rgba(127, 140, 141, 0.24)" },
-  { stroke: "#9c27b0", seed: "#bb72c8", halo: "rgba(156, 39, 176, 0.24)" },
-  { stroke: "#00897b", seed: "#58b6ad", halo: "rgba(0, 137, 123, 0.24)" }
+  { stroke: "#1b7f5a", seed: "#4fa27f", halo: "rgba(27, 127, 90, 0.22)" },
+  { stroke: "#c4454d", seed: "#d8777d", halo: "rgba(196, 69, 77, 0.22)" },
+  { stroke: "#2f6fdb", seed: "#6d98e5", halo: "rgba(47, 111, 219, 0.22)" },
+  { stroke: "#7b4db3", seed: "#9f79ca", halo: "rgba(123, 77, 179, 0.22)" },
+  { stroke: "#c9821f", seed: "#dca656", halo: "rgba(201, 130, 31, 0.22)" },
+  { stroke: "#168c88", seed: "#55aaa7", halo: "rgba(22, 140, 136, 0.22)" },
+  { stroke: "#b34478", seed: "#ca7398", halo: "rgba(179, 68, 120, 0.22)" },
+  { stroke: "#c45a32", seed: "#d68162", halo: "rgba(196, 90, 50, 0.22)" },
+  { stroke: "#4d5cc7", seed: "#7b86d8", halo: "rgba(77, 92, 199, 0.22)" },
+  { stroke: "#708c2b", seed: "#94aa5c", halo: "rgba(112, 140, 43, 0.22)" },
+  { stroke: "#167b9f", seed: "#579db7", halo: "rgba(22, 123, 159, 0.22)" },
+  { stroke: "#a83d4f", seed: "#c26f7c", halo: "rgba(168, 61, 79, 0.22)" },
+  { stroke: "#a66d13", seed: "#c0924c", halo: "rgba(166, 109, 19, 0.22)" },
+  { stroke: "#2a8f68", seed: "#62ad8c", halo: "rgba(42, 143, 104, 0.22)" },
+  { stroke: "#8b4aa0", seed: "#aa78b9", halo: "rgba(139, 74, 160, 0.22)" },
+  { stroke: "#d16b5f", seed: "#df9188", halo: "rgba(209, 107, 95, 0.22)" },
+  { stroke: "#35608a", seed: "#6e89a5", halo: "rgba(53, 96, 138, 0.22)" },
+  { stroke: "#8a406a", seed: "#a96f8e", halo: "rgba(138, 64, 106, 0.22)" },
+  { stroke: "#b38b18", seed: "#c8aa53", halo: "rgba(179, 139, 24, 0.22)" },
+  { stroke: "#268b91", seed: "#62aeb2", halo: "rgba(38, 139, 145, 0.22)" }
 ] as const;
 
 export class ODEPlotRenderer {
@@ -72,18 +71,21 @@ export class ODEPlotRenderer {
     element: HTMLDivElement;
     svgX: number;
     svgY: number;
+    offsetX: number;
+    offsetY: number;
+    alignX: "start" | "center" | "end";
   }> = [];
 
   constructor(svg: SVGSVGElement) {
     this.svg = svg;
     this.layout = {
-      width: 960,
-      height: 640,
+      width: 1280,
+      height: 720,
       padding: {
-        top: 56,
-        right: 26,
-        bottom: 88,
-        left: 118
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0
       }
     };
 
@@ -97,8 +99,13 @@ export class ODEPlotRenderer {
     this.curveLayer = createSvgElement("g", { "data-layer": "curves" });
     this.annotationLayer = document.createElement("div");
     this.annotationLayer.className = "plot-annotation-layer";
+    this.annotationLayer.setAttribute("aria-hidden", "true");
+    const accessibleMetadata = Array.from(this.svg.children).filter(
+      (element) => element.tagName === "title" || element.tagName === "desc"
+    );
 
     this.svg.replaceChildren(
+      ...accessibleMetadata,
       createSvgElement("rect", {
         x: "0",
         y: "0",
@@ -107,9 +114,9 @@ export class ODEPlotRenderer {
         fill: "var(--plot-surface)"
       }),
       this.gridLayer,
+      this.slopeLayer,
       this.axisLayer,
       this.equilibriumLayer,
-      this.slopeLayer,
       this.curveLayer,
       this.phaseFlowLayer
     );
@@ -139,9 +146,9 @@ export class ODEPlotRenderer {
       this.equilibriaKey = equilibriaKey;
     }
 
-    const slopeKey = `${boundsKey}|${compiledKey}|${viewModel.state.slopeDensity}`;
+    const slopeKey = `${boundsKey}|${compiledKey}`;
     if (this.slopeKey !== slopeKey) {
-      this.renderSlopeField(coordinates, viewModel.compiled, viewModel.state.slopeDensity);
+      this.renderSlopeField(coordinates, viewModel.state.bounds, viewModel.compiled);
       this.slopeKey = slopeKey;
     }
 
@@ -170,6 +177,7 @@ export class ODEPlotRenderer {
     }
 
     this.positionLatexAnnotations();
+    this.refreshPhaseFlowScreenGeometry();
   }
 
   clientPointToModel(
@@ -205,57 +213,94 @@ export class ODEPlotRenderer {
     }
   ): CurvePoint {
     const coordinates = createCoordinateSystem(this.layout, bounds);
+    const screenMatrix = this.svg.getScreenCTM();
+    const screenScaleX = screenMatrix
+      ? coordinates.scaleX * Math.hypot(screenMatrix.a, screenMatrix.b)
+      : coordinates.scaleX;
+    const screenScaleY = screenMatrix
+      ? coordinates.scaleY * Math.hypot(screenMatrix.c, screenMatrix.d)
+      : coordinates.scaleY;
     return snapPointToTargets(point, {
       bounds,
       equilibriumLevels: options.equilibriumLevels,
-      scaleX: coordinates.scaleX,
-      scaleY: coordinates.scaleY,
+      scaleX: screenScaleX,
+      scaleY: screenScaleY,
       axisSnapPixels: options.axisSnapPixels,
       equilibriumSnapPixels: options.equilibriumSnapPixels
     });
   }
 
+  findNearestTrajectoryId(
+    clientX: number,
+    clientY: number,
+    bounds: ViewModel["state"]["bounds"],
+    trajectories: IntegralCurve[],
+    maxDistancePixels = 18
+  ): string | null {
+    const screenMatrix = this.svg.getScreenCTM();
+    if (!screenMatrix || trajectories.length === 0) {
+      return null;
+    }
+
+    const coordinates = createCoordinateSystem(this.layout, bounds);
+    const projectToClient = (point: CurvePoint) => {
+      const svgPoint = coordinates.modelToSvg(point);
+      return {
+        x: screenMatrix.a * svgPoint.x + screenMatrix.c * svgPoint.y + screenMatrix.e,
+        y: screenMatrix.b * svgPoint.x + screenMatrix.d * svgPoint.y + screenMatrix.f
+      };
+    };
+    const target = { x: clientX, y: clientY };
+    let nearestId: string | null = null;
+    let nearestDistanceSquared = maxDistancePixels * maxDistancePixels;
+
+    trajectories.forEach((trajectory) => {
+      const points = trajectory.points.length > 0 ? trajectory.points : [trajectory.seed];
+      let previous = projectToClient(points[0]);
+      let curveDistanceSquared = squaredDistance(target, previous);
+
+      for (let index = 1; index < points.length; index += 1) {
+        const current = projectToClient(points[index]);
+        curveDistanceSquared = Math.min(
+          curveDistanceSquared,
+          squaredDistanceToSegment(target, previous, current)
+        );
+        previous = current;
+      }
+
+      curveDistanceSquared = Math.min(
+        curveDistanceSquared,
+        squaredDistance(target, projectToClient(trajectory.seed))
+      );
+      if (curveDistanceSquared <= nearestDistanceSquared) {
+        nearestDistanceSquared = curveDistanceSquared;
+        nearestId = trajectory.id;
+      }
+    });
+
+    return nearestId;
+  }
+
   private renderGrid(coordinates: CoordinateSystem, bounds: ViewModel["state"]["bounds"]): void {
-    const tTicks = computeNiceTicks(bounds.tMin, bounds.tMax, 8);
-    const yTicks = computeNiceTicks(bounds.yMin, bounds.yMax, 8);
-    const pathCommands: string[] = [];
-
-    tTicks.forEach((tick) => {
-      const position = coordinates.modelToSvg({ t: tick, y: bounds.yMin });
-
-      pathCommands.push(
-        `M ${position.x.toFixed(2)} ${coordinates.innerTop.toFixed(2)} ` +
-          `L ${position.x.toFixed(2)} ${(coordinates.innerTop + coordinates.innerHeight).toFixed(2)}`
-      );
-    });
-
-    yTicks.forEach((tick) => {
-      const position = coordinates.modelToSvg({ t: bounds.tMin, y: tick });
-
-      pathCommands.push(
-        `M ${coordinates.innerLeft.toFixed(2)} ${position.y.toFixed(2)} ` +
-          `L ${(coordinates.innerLeft + coordinates.innerWidth).toFixed(2)} ${position.y.toFixed(2)}`
-      );
-    });
-
-    const frame = createSvgElement("rect", {
-      x: `${coordinates.innerLeft}`,
-      y: `${coordinates.innerTop}`,
-      width: `${coordinates.innerWidth}`,
-      height: `${coordinates.innerHeight}`,
-      rx: "18",
-      fill: "transparent",
-      stroke: "var(--frame-stroke)",
-      "stroke-width": "1.4"
-    });
-    const gridPath = createSvgElement("path", {
-      d: pathCommands.join(" "),
+    const { t: tTicks, y: yTicks } = computePlotTickLayouts(bounds);
+    const majorPath = createSvgElement("path", {
+      "data-grid": "major",
+      d: createGridPath(coordinates, bounds, tTicks.major, yTicks.major),
       fill: "none",
-      stroke: "var(--grid-stroke)",
-      "stroke-width": "1"
+      stroke: "var(--grid-major-stroke)",
+      "stroke-width": "1.15",
+      "vector-effect": "non-scaling-stroke"
+    });
+    const minorPath = createSvgElement("path", {
+      "data-grid": "minor",
+      d: createGridPath(coordinates, bounds, tTicks.minor, yTicks.minor),
+      fill: "none",
+      stroke: "var(--grid-minor-stroke)",
+      "stroke-width": "0.7",
+      "vector-effect": "non-scaling-stroke"
     });
 
-    this.gridLayer.replaceChildren(frame, gridPath);
+    this.gridLayer.replaceChildren(minorPath, majorPath);
   }
 
   private renderAxes(coordinates: CoordinateSystem, bounds: ViewModel["state"]["bounds"]): void {
@@ -265,12 +310,14 @@ export class ODEPlotRenderer {
       const horizontal = coordinates.modelToSvg({ t: bounds.tMin, y: 0 });
       nodes.push(
         createSvgElement("line", {
+          "data-axis": "y-zero",
           x1: `${coordinates.innerLeft}`,
           y1: `${horizontal.y}`,
           x2: `${coordinates.innerLeft + coordinates.innerWidth}`,
           y2: `${horizontal.y}`,
           stroke: "var(--axis-stroke)",
-          "stroke-width": "1.6"
+          "stroke-width": "1.6",
+          "vector-effect": "non-scaling-stroke"
         })
       );
     }
@@ -279,12 +326,14 @@ export class ODEPlotRenderer {
       const vertical = coordinates.modelToSvg({ t: 0, y: bounds.yMin });
       nodes.push(
         createSvgElement("line", {
+          "data-axis": "t-zero",
           x1: `${vertical.x}`,
           y1: `${coordinates.innerTop}`,
           x2: `${vertical.x}`,
           y2: `${coordinates.innerTop + coordinates.innerHeight}`,
           stroke: "var(--axis-stroke)",
-          "stroke-width": "1.6"
+          "stroke-width": "1.6",
+          "vector-effect": "non-scaling-stroke"
         })
       );
     }
@@ -322,7 +371,8 @@ export class ODEPlotRenderer {
             d: pathCommands.join(" "),
             fill: "none",
             stroke: "var(--equilibrium-stroke)",
-            "stroke-width": "2.8"
+            "stroke-width": "2.8",
+            "vector-effect": "non-scaling-stroke"
           })
         : null;
 
@@ -334,63 +384,63 @@ export class ODEPlotRenderer {
 
   private renderSlopeField(
     coordinates: CoordinateSystem,
-    compiled: CompiledExpression | null,
-    density: number
+    bounds: ViewModel["state"]["bounds"],
+    compiled: CompiledExpression | null
   ): void {
     if (!compiled) {
       this.slopeLayer.replaceChildren();
       return;
     }
 
-    const columns = Math.max(2, Math.round(density));
-    const rows = Math.max(10, Math.round((coordinates.innerHeight / coordinates.innerWidth) * density));
-    const screenSpacing = Math.min(
-      coordinates.innerWidth / Math.max(columns, 2),
-      coordinates.innerHeight / Math.max(rows, 2)
-    );
-    const segmentLength = screenSpacing * 0.68;
-    const pathCommands: string[] = [];
-    const columnSamples = Array.from({ length: columns }, (_, column) => {
-      const x = coordinates.innerLeft + (coordinates.innerWidth * column) / (columns - 1);
+    const { t: tTicks, y: yTicks } = computePlotTickLayouts(bounds);
+    const tSamples = collectInteriorTicks(tTicks, bounds.tMin, bounds.tMax);
+    const ySamples = collectInteriorTicks(yTicks, bounds.yMin, bounds.yMax);
+    const segmentLength =
+      Math.min(
+        coordinates.scaleX * (tTicks.majorStep / GRID_MINOR_DIVISIONS),
+        coordinates.scaleY * (yTicks.majorStep / GRID_MINOR_DIVISIONS)
+      ) * 0.44;
+    if (tSamples.length === 0 || ySamples.length === 0 || !Number.isFinite(segmentLength)) {
+      this.slopeLayer.replaceChildren();
+      return;
+    }
 
+    const pathCommands: string[] = [];
+    const preparedEvaluation = compiled.prepareEvaluation?.(SLOPE_EVALUATION_OPTIONS);
+    const evaluate = (t: number, y: number) =>
+      preparedEvaluation
+        ? preparedEvaluation.evaluateWithDiagnostics(t, y)
+        : compiled.evaluateWithDiagnostics(t, y, SLOPE_EVALUATION_OPTIONS);
+    const columnSamples = tSamples.map((t) => {
+      const x = coordinates.modelToSvg({ t, y: bounds.yMin }).x;
       return {
-        t: coordinates.svgToModel({ x, y: coordinates.innerTop }).t,
+        t,
         x
       };
     });
 
-    for (let row = 0; row < rows; row += 1) {
-      const centerY = coordinates.innerTop + (coordinates.innerHeight * row) / (rows - 1);
-      const y = coordinates.svgToModel({ x: coordinates.innerLeft, y: centerY }).y;
-      const autonomousDiagnostics = compiled.isAutonomous
-        ? compiled.evaluateWithDiagnostics(0, y, SLOPE_EVALUATION_OPTIONS)
-        : null;
+    for (const y of ySamples) {
+      const centerY = coordinates.modelToSvg({ t: bounds.tMin, y }).y;
+      const autonomousDiagnostics = compiled.isAutonomous ? evaluate(0, y) : null;
 
-      for (let column = 0; column < columns; column += 1) {
-        const { t, x } = columnSamples[column];
-        const slopeDiagnostics =
-          autonomousDiagnostics ??
-          compiled.evaluateWithDiagnostics(t, y, SLOPE_EVALUATION_OPTIONS);
+      for (const { t, x } of columnSamples) {
+        const slopeDiagnostics = autonomousDiagnostics ?? evaluate(t, y);
         if (slopeDiagnostics.status !== "ok" || !Number.isFinite(slopeDiagnostics.value)) {
           continue;
         }
         const slope = slopeDiagnostics.value;
 
-        const screenVector = normalizeVector({
-          x: coordinates.scaleX,
-          y: -slope * coordinates.scaleY
-        });
-
-        if (!screenVector) {
-          continue;
-        }
-
-        pathCommands.push(
-          `M ${(x - screenVector.x * segmentLength * 0.5).toFixed(2)} ` +
-            `${(centerY - screenVector.y * segmentLength * 0.5).toFixed(2)} ` +
-            `L ${(x + screenVector.x * segmentLength * 0.5).toFixed(2)} ` +
-            `${(centerY + screenVector.y * segmentLength * 0.5).toFixed(2)}`
+        const pathCommand = createDirectionFieldSegmentPath(
+          x,
+          centerY,
+          segmentLength,
+          coordinates.scaleX,
+          coordinates.scaleY,
+          slope
         );
+        if (pathCommand) {
+          pathCommands.push(pathCommand);
+        }
       }
     }
 
@@ -404,8 +454,11 @@ export class ODEPlotRenderer {
         d: pathCommands.join(" "),
         fill: "none",
         stroke: "var(--slope-stroke)",
-        "stroke-width": "1.8",
-        "stroke-linecap": "round"
+        "stroke-width": "1.4",
+        "stroke-linecap": "round",
+        "data-slope-columns": `${tSamples.length}`,
+        "data-slope-rows": `${ySamples.length}`,
+        "vector-effect": "non-scaling-stroke"
       })
     );
   }
@@ -422,6 +475,13 @@ export class ODEPlotRenderer {
       this.renderedTrajectories
         .slice(0, sharedPrefixLength)
         .every((trajectory, index) => trajectory === trajectories[index]);
+    const previousById = new Map(
+      this.renderedTrajectories.map((trajectory) => [trajectory.id, trajectory])
+    );
+    const canRetainRemaining =
+      sameBounds &&
+      trajectories.length < this.renderedTrajectories.length &&
+      trajectories.every((trajectory) => previousById.get(trajectory.id) === trajectory);
 
     if (hasSharedPrefix && trajectories.length >= this.renderedTrajectories.length) {
       for (let index = this.renderedTrajectories.length; index < trajectories.length; index += 1) {
@@ -431,6 +491,14 @@ export class ODEPlotRenderer {
       while (this.curveLayer.childElementCount > trajectories.length) {
         this.curveLayer.lastElementChild?.remove();
       }
+    } else if (canRetainRemaining) {
+      const retainedIds = new Set(trajectories.map(({ id }) => id));
+      Array.from(this.curveLayer.children).forEach((child) => {
+        const curveId = child.getAttribute("data-curve-id");
+        if (curveId && !retainedIds.has(curveId)) {
+          child.remove();
+        }
+      });
     } else {
       this.curveLayer.replaceChildren(
         ...trajectories.map((trajectory, index) => createCurveGroup(coordinates, trajectory, index))
@@ -455,7 +523,9 @@ export class ODEPlotRenderer {
       !compiled.evaluateAutonomous ||
       equilibria.mode !== "roots" ||
       equilibria.levels.length === 0 ||
-      equilibria.intervals.length > 0
+      equilibria.intervals.length > 0 ||
+      bounds.tMin > 0 ||
+      bounds.tMax < 0
     ) {
       this.phaseFlowLayer.replaceChildren();
       return;
@@ -489,26 +559,31 @@ export class ODEPlotRenderer {
       return;
     }
 
-    const phaseX = this.resolvePhaseFlowX(coordinates, bounds);
+    const phaseX = this.resolvePhaseFlowX(coordinates);
     const nodes: SVGElement[] = [
       createSvgElement("rect", {
-        x: `${phaseX - 14}`,
-        y: `${coordinates.innerTop + 14}`,
-        width: "28",
-        height: `${coordinates.innerHeight - 28}`,
-        rx: "14",
+        class: "phase-flow-track",
+        "data-phase-flow-track": "true",
+        "data-phase-x": `${phaseX}`,
+        x: `${phaseX - 16}`,
+        y: `${coordinates.innerTop}`,
+        width: "32",
+        height: `${coordinates.innerHeight}`,
+        rx: "0",
         fill: "var(--phase-flow-surface)",
         stroke: "var(--phase-flow-border)",
-        "stroke-width": "1"
+        "stroke-width": "1.2",
+        "vector-effect": "non-scaling-stroke"
       }),
       createSvgElement("line", {
         x1: `${phaseX}`,
-        y1: `${coordinates.innerTop + 18}`,
+        y1: `${coordinates.innerTop}`,
         x2: `${phaseX}`,
-        y2: `${coordinates.innerTop + coordinates.innerHeight - 18}`,
+        y2: `${coordinates.innerTop + coordinates.innerHeight}`,
         stroke: "var(--phase-flow-rail)",
-        "stroke-width": "1.5",
-        "stroke-linecap": "round"
+        "stroke-width": "1.6",
+        "stroke-linecap": "butt",
+        "vector-effect": "non-scaling-stroke"
       })
     ];
 
@@ -521,7 +596,7 @@ export class ODEPlotRenderer {
       const yStart = coordinates.modelToSvg({ t: bounds.tMin, y: band.yStart }).y;
       const yEnd = coordinates.modelToSvg({ t: bounds.tMin, y: band.yEnd }).y;
       const intervalHeight = Math.abs(yEnd - yStart);
-      const arrowCount = intervalHeight > 220 ? 3 : intervalHeight > 120 ? 2 : 1;
+      const arrowCount = Math.max(1, Math.min(6, Math.ceil(intervalHeight / 70)));
 
       for (let index = 0; index < arrowCount; index += 1) {
         const progress = (index + 1) / (arrowCount + 1);
@@ -531,13 +606,47 @@ export class ODEPlotRenderer {
     });
 
     this.phaseFlowLayer.replaceChildren(...nodes);
+    this.refreshPhaseFlowScreenGeometry();
   }
 
-  private resolvePhaseFlowX(
-    coordinates: CoordinateSystem,
-    bounds: ViewModel["state"]["bounds"]
-  ): number {
-    return coordinates.innerLeft;
+  private resolvePhaseFlowX(coordinates: CoordinateSystem): number {
+    return coordinates.modelToSvg({ t: 0, y: 0 }).x;
+  }
+
+  private refreshPhaseFlowScreenGeometry(): void {
+    const screenMatrix = this.svg.getScreenCTM();
+    if (!screenMatrix) {
+      return;
+    }
+    const scaleX = Math.hypot(screenMatrix.a, screenMatrix.b);
+    const scaleY = Math.hypot(screenMatrix.c, screenMatrix.d);
+    if (scaleX <= 0 || scaleY <= 0) {
+      return;
+    }
+
+    const track = this.phaseFlowLayer.querySelector<SVGRectElement>("[data-phase-flow-track]");
+    if (track) {
+      const phaseX = Number(track.dataset.phaseX);
+      const halfWidth = 16 / scaleX;
+      if (Number.isFinite(phaseX)) {
+        track.setAttribute("x", `${phaseX - halfWidth}`);
+        track.setAttribute("width", `${halfWidth * 2}`);
+      }
+    }
+
+    this.phaseFlowLayer
+      .querySelectorAll<SVGGElement>("[data-phase-symbol]")
+      .forEach((symbol) => {
+        const x = Number(symbol.dataset.phaseX);
+        const y = Number(symbol.dataset.phaseY);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return;
+        }
+        symbol.setAttribute(
+          "transform",
+          `translate(${x} ${y}) scale(${1 / scaleX} ${1 / scaleY})`
+        );
+      });
   }
 
   private renderLatexAnnotations(
@@ -547,34 +656,60 @@ export class ODEPlotRenderer {
   ): void {
     if (this.annotationKey !== boundsKey) {
       const entries: typeof this.annotationEntries = [];
-      const tTicks = computeNiceTicks(bounds.tMin, bounds.tMax, 8);
-      const yTicks = computeNiceTicks(bounds.yMin, bounds.yMax, 8);
+      const { t: tTicks, y: yTicks } = computePlotTickLayouts(bounds);
+      const innerRight = coordinates.innerLeft + coordinates.innerWidth;
+      const innerBottom = coordinates.innerTop + coordinates.innerHeight;
+      const horizontalAxisY = clamp(
+        coordinates.modelToSvg({ t: bounds.tMin, y: 0 }).y,
+        coordinates.innerTop,
+        innerBottom
+      );
+      const verticalAxisX = clamp(
+        coordinates.modelToSvg({ t: 0, y: bounds.yMin }).x,
+        coordinates.innerLeft,
+        innerRight
+      );
+      const xTickOffset = horizontalAxisY > innerBottom - 50 ? -18 : 18;
+      const yTicksOnRight = verticalAxisX < coordinates.innerLeft + 64;
+      const yTickOffset = yTicksOnRight ? 18 : -18;
+      const yTickAlignment = yTicksOnRight ? "start" : "end";
+      const axesIntersectInView =
+        bounds.tMin <= 0 && bounds.tMax >= 0 && bounds.yMin <= 0 && bounds.yMax >= 0;
 
-      tTicks.forEach((tick) => {
+      tTicks.major.forEach((tick) => {
         const position = coordinates.modelToSvg({ t: tick, y: bounds.yMin });
         entries.push({
           element: createLatexOverlayLabel({
             x: 0,
             y: 0,
-            latex: formatTickLatex(tick),
-            className: "plot-latex-label tick-label"
+            latex: formatTickLatex(tick, tTicks.majorStep),
+            className: "plot-latex-label tick-label is-x"
           }),
           svgX: position.x,
-          svgY: coordinates.innerTop + coordinates.innerHeight + X_TICK_LABEL_OFFSET
+          svgY: horizontalAxisY,
+          offsetX: 0,
+          offsetY: xTickOffset,
+          alignX: "center"
         });
       });
 
-      yTicks.forEach((tick) => {
+      yTicks.major.forEach((tick) => {
+        if (axesIntersectInView && Math.abs(tick) <= Math.abs(yTicks.majorStep) * 1e-9) {
+          return;
+        }
         const position = coordinates.modelToSvg({ t: bounds.tMin, y: tick });
         entries.push({
           element: createLatexOverlayLabel({
             x: 0,
             y: 0,
-            latex: formatTickLatex(tick),
+            latex: formatTickLatex(tick, yTicks.majorStep),
             className: "plot-latex-label tick-label is-y"
           }),
-          svgX: coordinates.innerLeft - 18,
-          svgY: position.y
+          svgX: verticalAxisX,
+          svgY: position.y,
+          offsetX: yTickOffset,
+          offsetY: 0,
+          alignX: yTickAlignment
         });
       });
 
@@ -586,8 +721,11 @@ export class ODEPlotRenderer {
             latex: "t",
             className: "plot-latex-label axis-label"
           }),
-          svgX: coordinates.innerLeft + coordinates.innerWidth / 2,
-          svgY: this.layout.height - X_AXIS_LABEL_BOTTOM_INSET
+          svgX: innerRight,
+          svgY: horizontalAxisY,
+          offsetX: -20,
+          offsetY: -xTickOffset,
+          alignX: "end"
         },
         {
           element: createLatexOverlayLabel({
@@ -596,8 +734,11 @@ export class ODEPlotRenderer {
             latex: "y",
             className: "plot-latex-label axis-label vertical"
           }),
-          svgX: 28,
-          svgY: coordinates.innerTop + coordinates.innerHeight / 2
+          svgX: verticalAxisX,
+          svgY: coordinates.innerTop,
+          offsetX: -yTickOffset,
+          offsetY: 72,
+          alignX: yTicksOnRight ? "end" : "start"
         }
       );
 
@@ -626,9 +767,86 @@ export class ODEPlotRenderer {
         screenMatrix,
         layerRect
       );
-      entry.element.style.left = `${layerPoint.x}px`;
-      entry.element.style.top = `${layerPoint.y}px`;
+      const width = entry.element.offsetWidth;
+      const height = entry.element.offsetHeight;
+      const alignedLeft =
+        layerPoint.x +
+        entry.offsetX -
+        (entry.alignX === "center" ? width / 2 : entry.alignX === "end" ? width : 0);
+      const top = layerPoint.y + entry.offsetY - height / 2;
+      entry.element.style.left = `${clamp(
+        alignedLeft,
+        ANNOTATION_EDGE_INSET,
+        Math.max(ANNOTATION_EDGE_INSET, layerRect.width - width - ANNOTATION_EDGE_INSET)
+      )}px`;
+      entry.element.style.top = `${clamp(
+        top,
+        ANNOTATION_EDGE_INSET,
+        Math.max(ANNOTATION_EDGE_INSET, layerRect.height - height - ANNOTATION_EDGE_INSET)
+      )}px`;
     });
+    this.separateHorizontalAxisTitleFromTicks(layerRect);
+  }
+
+  private separateHorizontalAxisTitleFromTicks(layerRect: DOMRect): void {
+    const title = this.annotationEntries.find(
+      ({ element }) =>
+        element.classList.contains("axis-label") && !element.classList.contains("vertical")
+    )?.element;
+    const ticks = this.annotationEntries
+      .map(({ element }) => element)
+      .filter(
+        (element) =>
+          element.classList.contains("tick-label") && element.classList.contains("is-x")
+      );
+    if (!title || ticks.length === 0) {
+      return;
+    }
+
+    const titleLeft = Number.parseFloat(title.style.left);
+    const titleTop = Number.parseFloat(title.style.top);
+    const titleRight = titleLeft + title.offsetWidth;
+    const titleBottom = titleTop + title.offsetHeight;
+    const collidingTicks = ticks
+      .map((tick) => {
+        const left = Number.parseFloat(tick.style.left);
+        const top = Number.parseFloat(tick.style.top);
+        return {
+          left,
+          right: left + tick.offsetWidth,
+          top,
+          bottom: top + tick.offsetHeight
+        };
+      })
+      .filter(
+        (tick) =>
+          titleLeft < tick.right + ANNOTATION_COLLISION_GAP &&
+          titleRight + ANNOTATION_COLLISION_GAP > tick.left &&
+          titleTop < tick.bottom + ANNOTATION_COLLISION_GAP &&
+          titleBottom + ANNOTATION_COLLISION_GAP > tick.top
+      );
+    if (collidingTicks.length === 0) {
+      return;
+    }
+
+    const minimumTop = ANNOTATION_EDGE_INSET;
+    const maximumTop = Math.max(
+      ANNOTATION_EDGE_INSET,
+      layerRect.height - title.offsetHeight - ANNOTATION_EDGE_INSET
+    );
+    const candidates = [
+      Math.min(...collidingTicks.map(({ top }) => top)) -
+        ANNOTATION_COLLISION_GAP -
+        title.offsetHeight,
+      Math.max(...collidingTicks.map(({ bottom }) => bottom)) + ANNOTATION_COLLISION_GAP
+    ].filter((candidate) => candidate >= minimumTop && candidate <= maximumTop);
+
+    if (candidates.length > 0) {
+      const nearestCandidate = candidates.reduce((nearest, candidate) =>
+        Math.abs(candidate - titleTop) < Math.abs(nearest - titleTop) ? candidate : nearest
+      );
+      title.style.top = `${nearestCandidate}px`;
+    }
   }
 
   private projectToOverlay(
@@ -647,6 +865,102 @@ export class ODEPlotRenderer {
       y: screenPoint.y - layerRect.top
     };
   }
+}
+
+function computePlotTickLayouts(bounds: ViewModel["state"]["bounds"]): {
+  t: NiceTickLayout;
+  y: NiceTickLayout;
+} {
+  return {
+    t: computeNiceTickLayout(
+      bounds.tMin,
+      bounds.tMax,
+      X_GRID_TARGET,
+      GRID_MINOR_DIVISIONS
+    ),
+    y: computeNiceTickLayout(
+      bounds.yMin,
+      bounds.yMax,
+      Y_GRID_TARGET,
+      GRID_MINOR_DIVISIONS
+    )
+  };
+}
+
+export function collectInteriorTicks(
+  layout: NiceTickLayout,
+  min: number,
+  max: number
+): number[] {
+  return [...layout.major, ...layout.minor]
+    .filter((tick) => isInteriorTick(tick, min, max))
+    .sort((left, right) => left - right);
+}
+
+export function createGridPath(
+  coordinates: CoordinateSystem,
+  bounds: ViewModel["state"]["bounds"],
+  tTicks: number[],
+  yTicks: number[]
+): string {
+  const commands: string[] = [];
+  const innerRight = coordinates.innerLeft + coordinates.innerWidth;
+  const innerBottom = coordinates.innerTop + coordinates.innerHeight;
+
+  tTicks.forEach((tick) => {
+    if (!isInteriorTick(tick, bounds.tMin, bounds.tMax)) {
+      return;
+    }
+    const x = coordinates.modelToSvg({ t: tick, y: bounds.yMin }).x;
+    commands.push(
+      `M ${x.toFixed(2)} ${coordinates.innerTop.toFixed(2)} ` +
+        `L ${x.toFixed(2)} ${innerBottom.toFixed(2)}`
+    );
+  });
+
+  yTicks.forEach((tick) => {
+    if (!isInteriorTick(tick, bounds.yMin, bounds.yMax)) {
+      return;
+    }
+    const y = coordinates.modelToSvg({ t: bounds.tMin, y: tick }).y;
+    commands.push(
+      `M ${coordinates.innerLeft.toFixed(2)} ${y.toFixed(2)} ` +
+        `L ${innerRight.toFixed(2)} ${y.toFixed(2)}`
+    );
+  });
+
+  return commands.join(" ");
+}
+
+function isInteriorTick(tick: number, min: number, max: number): boolean {
+  if (!Number.isFinite(tick) || !Number.isFinite(min) || !Number.isFinite(max)) {
+    return false;
+  }
+
+  const span = max - min;
+  if (!Number.isFinite(span) || span <= 0 || tick <= min || tick >= max) {
+    return false;
+  }
+
+  // Scale the edge inset with the visible range. The representability term
+  // absorbs round-off at large offsets, while the cap prevents a coarse ULP
+  // from consuming a genuinely interior line in a range only a few ULPs wide.
+  const relativeTolerance = span * 1e-10;
+  const magnitude = Math.max(Math.abs(min), Math.abs(max), Math.abs(tick));
+  const representabilityTolerance = Math.max(
+    Number.MIN_VALUE,
+    magnitude * Number.EPSILON * 4
+  );
+  const tolerance = Math.min(
+    span * 1e-6,
+    Math.max(relativeTolerance, representabilityTolerance)
+  );
+
+  return tick - min > tolerance && max - tick > tolerance;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function createSvgElement<TagName extends keyof SVGElementTagNameMap>(
@@ -681,15 +995,114 @@ function serializeEquilibria(equilibria: EquilibriumResult): string {
 }
 
 function normalizeVector(vector: { x: number; y: number }): { x: number; y: number } | null {
-  const length = Math.hypot(vector.x, vector.y);
-  if (length < 1e-12) {
+  if (!Number.isFinite(vector.x) || !Number.isFinite(vector.y)) {
     return null;
   }
 
+  // Normalize relative to the largest component. This keeps a finite nonzero
+  // direction usable even when both screen scales are subnormal, and avoids
+  // overflowing the length when both components are close to Number.MAX_VALUE.
+  const componentScale = Math.max(Math.abs(vector.x), Math.abs(vector.y));
+  if (componentScale === 0) {
+    return null;
+  }
+
+  const scaledX = vector.x / componentScale;
+  const scaledY = vector.y / componentScale;
+  const scaledLength = Math.hypot(scaledX, scaledY);
+
   return {
-    x: vector.x / length,
-    y: vector.y / length
+    x: scaledX / scaledLength,
+    y: scaledY / scaledLength
   };
+}
+
+/**
+ * Creates one direction-field segment in screen coordinates. When the vertical
+ * component overflows, normalize from the reciprocal component ratio instead
+ * of dividing Infinity by Infinity. The latter would leak `NaN` into the SVG
+ * path for finite slopes in extremely narrow, but still renderable, windows.
+ */
+export function createDirectionFieldSegmentPath(
+  centerX: number,
+  centerY: number,
+  segmentLength: number,
+  scaleX: number,
+  scaleY: number,
+  slope: number
+): string | null {
+  const screenY = -slope * scaleY;
+  let screenVector: { x: number; y: number } | null;
+
+  if (Number.isFinite(screenY)) {
+    screenVector = normalizeVector({ x: scaleX, y: screenY });
+  } else if (
+    Number.isFinite(scaleX) &&
+    scaleX > 0 &&
+    Number.isFinite(scaleY) &&
+    scaleY > 0 &&
+    Number.isFinite(slope) &&
+    slope !== 0
+  ) {
+    const horizontalToVerticalRatio = (scaleX / scaleY) / Math.abs(slope);
+    const scaledLength = Math.hypot(horizontalToVerticalRatio, 1);
+    screenVector = {
+      x: horizontalToVerticalRatio / scaledLength,
+      y: -Math.sign(slope) / scaledLength
+    };
+  } else {
+    screenVector = null;
+  }
+
+  if (!screenVector) {
+    return null;
+  }
+
+  const halfLength = segmentLength * 0.5;
+  const startX = centerX - screenVector.x * halfLength;
+  const startY = centerY - screenVector.y * halfLength;
+  const endX = centerX + screenVector.x * halfLength;
+  const endY = centerY + screenVector.y * halfLength;
+  if (![startX, startY, endX, endY].every(Number.isFinite)) {
+    return null;
+  }
+
+  return (
+    `M ${startX.toFixed(2)} ${startY.toFixed(2)} ` +
+    `L ${endX.toFixed(2)} ${endY.toFixed(2)}`
+  );
+}
+
+function squaredDistance(
+  left: { x: number; y: number },
+  right: { x: number; y: number }
+): number {
+  return (left.x - right.x) ** 2 + (left.y - right.y) ** 2;
+}
+
+function squaredDistanceToSegment(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number }
+): number {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const lengthSquared = deltaX ** 2 + deltaY ** 2;
+  if (lengthSquared < 1e-12) {
+    return squaredDistance(point, start);
+  }
+
+  const projection = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared
+    )
+  );
+  return squaredDistance(point, {
+    x: start.x + projection * deltaX,
+    y: start.y + projection * deltaY
+  });
 }
 
 function createCurveGroup(
@@ -697,7 +1110,7 @@ function createCurveGroup(
   trajectory: IntegralCurve,
   index: number
 ): SVGGElement {
-  const palette = CURVE_PALETTE[index % CURVE_PALETTE.length];
+  const palette = CURVE_PALETTE[resolveCurvePaletteIndex(trajectory.id, index)];
   const group = createSvgElement("g", { "data-curve-id": trajectory.id });
   const seedPoint = coordinates.modelToSvg(trajectory.seed);
 
@@ -716,7 +1129,8 @@ function createCurveGroup(
         stroke: palette.stroke,
         "stroke-width": "3.2",
         "stroke-linecap": "round",
-        "stroke-linejoin": "round"
+        "stroke-linejoin": "round",
+        "vector-effect": "non-scaling-stroke"
       })
     );
   }
@@ -734,11 +1148,19 @@ function createCurveGroup(
       r: trajectory.points.length < 2 ? "4" : "4.5",
       fill: palette.seed,
       stroke: "var(--plot-surface)",
-      "stroke-width": "1.5"
+      "stroke-width": "1.5",
+      "vector-effect": "non-scaling-stroke"
     })
   );
 
   return group;
+}
+
+function resolveCurvePaletteIndex(curveId: string, fallbackIndex: number): number {
+  const numericSuffix = /(?:^|-)\d+$/.exec(curveId)?.[0].replace("-", "");
+  const parsedId = numericSuffix === undefined ? Number.NaN : Number(numericSuffix);
+  const stableIndex = Number.isInteger(parsedId) && parsedId > 0 ? parsedId - 1 : fallbackIndex;
+  return stableIndex % CURVE_PALETTE.length;
 }
 
 function createPhaseArrow(
@@ -746,28 +1168,36 @@ function createPhaseArrow(
   y: number,
   band: PhaseFlowBand
 ): SVGGElement {
-  const group = createSvgElement("g", {});
-  const shaftHalfLength = 12.5;
-  const arrowTipOffset = band.direction === "up" ? -shaftHalfLength : shaftHalfLength;
-  const shaftEndOffset = band.direction === "up" ? shaftHalfLength : -shaftHalfLength;
-  const headBaseOffset = band.direction === "up" ? -3.4 : 3.4;
+  const group = createSvgElement("g", {
+    "data-phase-symbol": "true",
+    "data-phase-arrow": "true",
+    "data-phase-x": `${x}`,
+    "data-phase-y": `${y}`
+  });
+  const direction = band.direction === "up" ? -1 : 1;
 
   group.append(
     createSvgElement("line", {
-      x1: `${x}`,
-      y1: `${y + shaftEndOffset}`,
-      x2: `${x}`,
-      y2: `${y + arrowTipOffset}`,
+      x1: "0",
+      y1: `${-direction * 15}`,
+      x2: "0",
+      y2: `${direction * 8}`,
       stroke: "var(--phase-flow-stroke)",
-      "stroke-width": "2.3",
-      "stroke-linecap": "round"
+      "stroke-width": "2.2",
+      "stroke-linecap": "butt",
+      "vector-effect": "non-scaling-stroke"
     }),
-    createSvgElement("polygon", {
-      points:
-        band.direction === "up"
-          ? `${x},${y - 15} ${x - 5.6},${y + headBaseOffset} ${x + 5.6},${y + headBaseOffset}`
-          : `${x},${y + 15} ${x - 5.6},${y + headBaseOffset} ${x + 5.6},${y + headBaseOffset}`,
-      fill: "var(--phase-flow-stroke)"
+    createSvgElement("path", {
+      "data-phase-arrow-head": "true",
+      d:
+        `M -5.5 ${direction * 7} ` +
+        `L 0 ${direction * 18} ` +
+        `L 5.5 ${direction * 7} Z`,
+      fill: "var(--phase-flow-stroke)",
+      stroke: "var(--phase-flow-stroke)",
+      "stroke-width": "1",
+      "stroke-linejoin": "round",
+      "vector-effect": "non-scaling-stroke"
     })
   );
 
@@ -796,18 +1226,25 @@ function createEquilibriumMarkerNode(
   y: number,
   marker: EquilibriumMarker
 ): SVGGElement {
-  const radius = 4.6;
-  const group = createSvgElement("g", {});
+  const radius = 5.2;
+  const group = createSvgElement("g", {
+    "data-phase-symbol": "true",
+    "data-phase-marker": "true",
+    "data-phase-marker-stability": marker.stability,
+    "data-phase-x": `${x}`,
+    "data-phase-y": `${y}`
+  });
 
   if (marker.stability === "stable") {
     group.append(
       createSvgElement("circle", {
-        cx: `${x}`,
-        cy: `${y}`,
+        cx: "0",
+        cy: "0",
         r: `${radius}`,
         fill: "var(--phase-flow-stroke)",
         stroke: "var(--phase-flow-stroke)",
-        "stroke-width": "1.2"
+        "stroke-width": "1.2",
+        "vector-effect": "non-scaling-stroke"
       })
     );
     return group;
@@ -815,12 +1252,13 @@ function createEquilibriumMarkerNode(
 
   group.append(
     createSvgElement("circle", {
-      cx: `${x}`,
-      cy: `${y}`,
+      cx: "0",
+      cy: "0",
       r: `${radius}`,
-      fill: "var(--plot-surface)",
+      fill: "var(--phase-flow-surface)",
       stroke: "var(--phase-flow-stroke)",
-      "stroke-width": "1.4"
+      "stroke-width": "1.4",
+      "vector-effect": "non-scaling-stroke"
     })
   );
 
@@ -828,7 +1266,10 @@ function createEquilibriumMarkerNode(
     return group;
   }
 
-  const clipId = `phase-marker-${marker.stability}-${x.toFixed(1)}-${y.toFixed(1)}`.replaceAll(".", "_");
+  const clipId = `phase-marker-${marker.stability}-${x.toFixed(2)}-${y.toFixed(2)}`.replaceAll(
+    ".",
+    "_"
+  );
   const clipPath = createSvgElement("clipPath", {
     id: clipId,
     clipPathUnits: "userSpaceOnUse"
@@ -836,8 +1277,8 @@ function createEquilibriumMarkerNode(
 
   clipPath.append(
     createSvgElement("rect", {
-      x: `${x - radius - 1}`,
-      y: marker.stability === "semistable-from-above" ? `${y - radius - 1}` : `${y}`,
+      x: `${-radius - 1}`,
+      y: marker.stability === "semistable-from-above" ? `${-radius - 1}` : "0",
       width: `${radius * 2 + 2}`,
       height: `${radius + 1}`
     })
@@ -846,8 +1287,8 @@ function createEquilibriumMarkerNode(
   group.append(
     clipPath,
     createSvgElement("circle", {
-      cx: `${x}`,
-      cy: `${y}`,
+      cx: "0",
+      cy: "0",
       r: `${radius}`,
       fill: "var(--phase-flow-stroke)",
       stroke: "none",

@@ -55,6 +55,7 @@ const MAXIMUM_REDUCTION_FACTOR = 0.5;
 const MINIMUM_GROWTH_FACTOR = 0.2;
 const MAXIMUM_GROWTH_FACTOR = 5;
 const VISIBLE_Y_STEP_FRACTION = 0.25;
+const MIN_NORMAL_NUMBER = 2 ** -1022;
 
 export function createSolverSettings(bounds: AxisBounds): SolverSettings {
   const tSpan = bounds.tMax - bounds.tMin;
@@ -474,10 +475,22 @@ function limitStepToVisibleYScale(
 }
 
 function normalizedMaximumStep(settings: SolverSettings, bounds: AxisBounds): number {
-  const fallback = (bounds.tMax - bounds.tMin) / 160;
-  return Number.isFinite(settings.stepSize) && settings.stepSize > 0
-    ? settings.stepSize
-    : fallback;
+  const span = bounds.tMax - bounds.tMin;
+  const fallback = span / 160;
+  const configured =
+    Number.isFinite(settings.stepSize) && settings.stepSize > 0
+      ? settings.stepSize
+      : fallback;
+  const representableStep = Math.max(
+    numberResolution(bounds.tMin),
+    numberResolution(bounds.tMax)
+  );
+
+  // A span can be perfectly valid even when its default fraction is smaller
+  // than one ULP at the window's offset (for example, [1e16, 1e16 + 20]).
+  // Ensure an accepted step can actually advance the floating-point clock,
+  // while never stepping farther than the visible interval.
+  return Math.min(span, Math.max(configured, representableStep));
 }
 
 function normalizedMinimumStep(
@@ -495,7 +508,25 @@ function normalizedMinimumStep(
 }
 
 function timeResolution(left: number, right: number): number {
-  return 8 * Number.EPSILON * Math.max(1, Math.abs(left), Math.abs(right));
+  // A positive gap of one ULP is still traversable and must not be mistaken
+  // for arrival at the boundary. Half the smaller local ULP remains below the
+  // gap even when the two values straddle a binary exponent boundary. It
+  // underflows harmlessly to zero for the smallest subnormal values, where
+  // exact equality remains sufficient.
+  return 0.5 * Math.min(numberResolution(left), numberResolution(right));
+}
+
+function numberResolution(value: number): number {
+  const magnitude = Math.abs(value);
+  if (magnitude === 0 || magnitude < MIN_NORMAL_NUMBER) {
+    return Number.MIN_VALUE;
+  }
+
+  // Adjacent IEEE-754 doubles in a binary exponent band are 2^(e - 52)
+  // apart. Unlike an absolute epsilon floor, this still permits integration
+  // across small, representable time windows near zero.
+  const exponent = Math.min(1023, Math.floor(Math.log2(magnitude)));
+  return 2 ** (exponent - 52);
 }
 
 function terminationForRejection(

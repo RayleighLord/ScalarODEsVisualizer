@@ -11,36 +11,43 @@ const SEED_EVALUATION_OPTIONS = {
 const EXPRESSION_DEBOUNCE_MS = 150;
 
 export function startApp(): void {
-  const equationInput = getElement<HTMLTextAreaElement>("equation-input");
+  const equationInput = getElement<HTMLInputElement>("equation-input");
   const boundsForm = getElement<HTMLFormElement>("bounds-form");
   const tMinInput = getElement<HTMLInputElement>("t-min-input");
   const tMaxInput = getElement<HTMLInputElement>("t-max-input");
   const yMinInput = getElement<HTMLInputElement>("y-min-input");
   const yMaxInput = getElement<HTMLInputElement>("y-max-input");
   const phaseFlowToggle = getElement<HTMLInputElement>("phase-flow-toggle");
-  const heroEquation = getElement<HTMLElement>("hero-equation");
   const plotOdePreview = getElement<HTMLElement>("plot-ode-preview");
+  const equationFamilyMath = getElement<HTMLElement>("equation-family-math");
+  const equationInputPrefix = getElement<HTMLElement>("equation-input-prefix");
   const resetButton = getElement<HTMLButtonElement>("reset-button");
   const clearCurvesButton = getElement<HTMLButtonElement>("clear-curves-button");
   const equationStatus = getElement<HTMLElement>("equation-status");
   const equationType = getElement<HTMLElement>("equation-type");
   const equilibriumSummary = getElement<HTMLElement>("equilibrium-summary");
   const equilibriumSolutions = getElement<HTMLElement>("equilibrium-solutions");
-  const curveCount = getElement<HTMLElement>("curve-count");
   const noticeList = getElement<HTMLUListElement>("notice-list");
+  const toggleUiButton = getElement<HTMLButtonElement>("toggle-ui-button");
+  const helpButton = getElement<HTMLButtonElement>("help-button");
+  const helpPopover = getElement<HTMLElement>("help-popover");
+  const helpCloseButton = getElement<HTMLButtonElement>("help-close-button");
   const plot = getElement<SVGSVGElement>("ode-plot");
 
   const controller = new AppController();
   const renderer = new ODEPlotRenderer(plot);
+  renderLatex(equationFamilyMath, "y' = f(y, t)");
+  renderLatex(equationInputPrefix, "y' =");
+  document.querySelectorAll<HTMLElement>("[data-static-latex]").forEach((element) => {
+    renderLatex(element, element.dataset.staticLatex ?? "");
+  });
   const statusElements = {
     equationStatus,
     equationType,
     equilibriumSummary,
     equilibriumSolutions,
-    curveCount,
     noticeList
   };
-  renderLatex(heroEquation, "y' = f(t, y)");
   let pendingResizeFrame = 0;
   let pendingExpressionTimer = 0;
   let pendingExpression: string | null = null;
@@ -78,6 +85,10 @@ export function startApp(): void {
     if (shouldSyncBounds) {
       syncedBounds = viewModel.state.bounds;
     }
+    clearCurvesButton.disabled = viewModel.state.curveSeeds.length === 0;
+    [tMinInput, tMaxInput, yMinInput, yMaxInput].forEach((input) => {
+      input.setAttribute("aria-invalid", `${viewModel.state.boundsError !== null}`);
+    });
     renderStatus(viewModel, statusElements);
     if (pendingResizeFrame !== 0) {
       window.cancelAnimationFrame(pendingResizeFrame);
@@ -135,19 +146,35 @@ export function startApp(): void {
     pendingExpressionTimer = window.setTimeout(commitPendingExpression, EXPRESSION_DEBOUNCE_MS);
   });
 
-  boundsForm.addEventListener("submit", (event) => {
-    event.preventDefault();
+  const applyLiveBounds = () => {
+    const values = [tMinInput, tMaxInput, yMinInput, yMaxInput].map((input) => ({
+      text: input.value.trim(),
+      number: input.valueAsNumber
+    }));
+    if (values.some(({ text, number }) => text === "" || !Number.isFinite(number))) {
+      return;
+    }
+
     const nextBounds = {
-      tMin: Number(tMinInput.value),
-      tMax: Number(tMaxInput.value),
-      yMin: Number(yMinInput.value),
-      yMax: Number(yMaxInput.value)
+      tMin: values[0].number,
+      tMax: values[1].number,
+      yMin: values[2].number,
+      yMax: values[3].number
     };
     const expression = consumePendingExpression();
     applyControllerUpdate({
       ...(expression === null ? {} : { expression }),
       bounds: nextBounds
     });
+  };
+
+  [tMinInput, tMaxInput, yMinInput, yMaxInput].forEach((input) => {
+    input.addEventListener("input", applyLiveBounds);
+  });
+
+  boundsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    applyLiveBounds();
   });
 
   resetButton.addEventListener("click", () => {
@@ -170,6 +197,46 @@ export function startApp(): void {
       ...(expression === null ? {} : { expression }),
       showPhaseFlow
     });
+  });
+
+  const uiOverlays = Array.from(document.querySelectorAll<HTMLElement>("[data-ui-overlay]"));
+  const setHelpOpen = (open: boolean) => {
+    helpPopover.hidden = !open;
+    helpButton.setAttribute("aria-expanded", `${open}`);
+  };
+  toggleUiButton.addEventListener("click", () => {
+    const hideUi = toggleUiButton.getAttribute("aria-pressed") !== "true";
+    setHelpOpen(false);
+    uiOverlays.forEach((overlay) => {
+      overlay.hidden = hideUi;
+    });
+    toggleUiButton.setAttribute("aria-pressed", `${hideUi}`);
+    toggleUiButton.textContent = hideUi ? "Show UI" : "Hide UI";
+  });
+
+  helpButton.addEventListener("click", () => {
+    setHelpOpen(helpPopover.hidden);
+  });
+  helpCloseButton.addEventListener("click", () => {
+    setHelpOpen(false);
+    helpButton.focus();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (
+      !helpPopover.hidden &&
+      target instanceof Node &&
+      !helpPopover.contains(target) &&
+      !helpButton.contains(target)
+    ) {
+      setHelpOpen(false);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !helpPopover.hidden) {
+      setHelpOpen(false);
+      helpButton.focus();
+    }
   });
 
   plot.addEventListener("click", (event) => {
@@ -210,12 +277,46 @@ export function startApp(): void {
 
     controller.addCurveSeed(seedPoint);
   });
+
+  plot.addEventListener("contextmenu", (event) => {
+    const viewModel = controller.getViewModel();
+    const modelPoint = renderer.clientPointToModel(
+      event.clientX,
+      event.clientY,
+      viewModel.state.bounds
+    );
+    if (!modelPoint) {
+      return;
+    }
+
+    event.preventDefault();
+    const clearAll = event.shiftKey;
+    const removeCurveId = clearAll
+      ? null
+      : renderer.findNearestTrajectoryId(
+          event.clientX,
+          event.clientY,
+          viewModel.state.bounds,
+          viewModel.trajectories,
+          18
+        );
+
+    if (!clearAll && removeCurveId === null) {
+      return;
+    }
+
+    const expression = consumePendingExpression();
+    applyControllerUpdate({
+      ...(expression === null ? {} : { expression }),
+      ...(clearAll ? { clearCurves: true } : { removeCurveId: removeCurveId ?? undefined })
+    });
+  });
 }
 
 function syncInputs(
   bounds: AxisBounds,
   elements: {
-    equationInput: HTMLTextAreaElement;
+    equationInput: HTMLInputElement;
     tMinInput: HTMLInputElement;
     tMaxInput: HTMLInputElement;
     yMinInput: HTMLInputElement;
@@ -256,7 +357,6 @@ function renderStatus(
     equationType: HTMLElement;
     equilibriumSummary: HTMLElement;
     equilibriumSolutions: HTMLElement;
-    curveCount: HTMLElement;
     noticeList: HTMLUListElement;
   }
 ): void {
@@ -277,7 +377,6 @@ function renderStatus(
 
   setTextContent(elements.equilibriumSummary, formatEquilibriumSummary(viewModel));
   renderEquilibriumSolutions(viewModel, elements.equilibriumSolutions);
-  setTextContent(elements.curveCount, `${viewModel.trajectories.length}`);
 
   elements.noticeList.classList.toggle("is-empty", viewModel.notices.length === 0);
   const noticeKey = serializeNotices(viewModel.notices);
@@ -336,12 +435,12 @@ function formatEquilibriumSummary(viewModel: ViewModel): string {
 
   if (equilibria.mode === "roots") {
     if (equilibria.intervals.length > 0 && equilibria.levels.length > 0) {
-      return "Black lines and shaded bands mark equilibrium solutions.";
+      return "Fixed solutions appear as black lines and shaded bands.";
     }
     if (equilibria.intervals.length > 0) {
-      return "Shaded horizontal bands mark equilibrium solutions.";
+      return "Equilibrium families appear as shaded bands.";
     }
-    return "Black horizontal solution lines.";
+    return "Fixed solutions appear as bold black lines.";
   }
 
   if (equilibria.mode === "all") {
@@ -367,8 +466,9 @@ function renderEquilibriumSolutions(viewModel: ViewModel, container: HTMLElement
   }
 
   if (
-    equilibria.mode !== "roots" ||
-    (equilibria.levels.length === 0 && equilibria.intervals.length === 0)
+    equilibria.mode !== "all" &&
+    (equilibria.mode !== "roots" ||
+      (equilibria.levels.length === 0 && equilibria.intervals.length === 0))
   ) {
     container.replaceChildren();
     container.classList.remove("has-items");
@@ -377,30 +477,48 @@ function renderEquilibriumSolutions(viewModel: ViewModel, container: HTMLElement
   }
 
   container.classList.add("has-items");
+  if (equilibria.mode === "all") {
+    container.replaceChildren(createEquilibriumChip("y(t) \\equiv c,\\quad c \\in \\mathbb{R}"));
+    container.dataset.renderKey = renderKey;
+    return;
+  }
+
   container.replaceChildren(
-    ...equilibria.levels.map((level) => {
-      const item = document.createElement("span");
-      item.className = "equilibrium-chip";
-      item.textContent = `y = ${formatCompactNumber(level)}`;
-      return item;
-    }),
-    ...equilibria.intervals.map((interval) => {
-      const item = document.createElement("span");
-      item.className = "equilibrium-chip equilibrium-interval-chip";
-      item.textContent = formatEquilibriumInterval(interval);
-      return item;
-    })
+    ...equilibria.levels.map((level) =>
+      createEquilibriumChip(`y(t) \\equiv ${formatLatexNumber(level)}`)
+    ),
+    ...equilibria.intervals.map((interval) =>
+      createEquilibriumChip(formatEquilibriumIntervalLatex(interval), true)
+    )
   );
   container.dataset.renderKey = renderKey;
 }
 
-function formatEquilibriumInterval(interval: EquilibriumInterval): string {
-  const lowerRelation = interval.minInclusive ? "≤" : "<";
-  const upperRelation = interval.maxInclusive ? "≤" : "<";
+function createEquilibriumChip(latex: string, isInterval = false): HTMLSpanElement {
+  const item = document.createElement("span");
+  item.className = `equilibrium-chip${isInterval ? " equilibrium-interval-chip" : ""}`;
+  item.dataset.equilibriumLatex = latex;
+  renderLatex(item, latex);
+  return item;
+}
+
+function formatEquilibriumIntervalLatex(interval: EquilibriumInterval): string {
+  const leftBracket = interval.minInclusive ? "[" : "(";
+  const rightBracket = interval.maxInclusive ? "]" : ")";
   return (
-    `${formatCompactNumber(interval.min)} ${lowerRelation} y ` +
-    `${upperRelation} ${formatCompactNumber(interval.max)}`
+    `y(t) \\equiv c,\\quad c \\in ${leftBracket}` +
+    `${formatLatexNumber(interval.min)},${formatLatexNumber(interval.max)}${rightBracket}`
   );
+}
+
+function formatLatexNumber(value: number): string {
+  if (value === Number.POSITIVE_INFINITY) {
+    return "\\infty";
+  }
+  if (value === Number.NEGATIVE_INFINITY) {
+    return "-\\infty";
+  }
+  return formatCompactNumber(value);
 }
 
 function serializeNotices(notices: AppNotice[]): string {

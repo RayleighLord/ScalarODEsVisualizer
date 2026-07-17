@@ -28,7 +28,6 @@ export interface AppState {
   expression: string;
   bounds: AxisBounds;
   curveSeeds: CurveSeed[];
-  slopeDensity: number;
   showPhaseFlow: boolean;
   boundsError: string | null;
 }

@@ -32,19 +32,24 @@ export interface AppControllerUpdate {
   expression?: string;
   bounds?: AxisBounds;
   clearCurves?: boolean;
+  removeCurveId?: string;
   showPhaseFlow?: boolean;
 }
 
 type Listener = (viewModel: ViewModel) => void;
 
 const DEFAULT_BOUNDS: AxisBounds = {
-  tMin: -4,
-  tMax: 4,
-  yMin: -2,
-  yMax: 2
+  tMin: -6,
+  tMax: 6,
+  yMin: -3,
+  yMax: 3
 };
 
-const DEFAULT_EXPRESSION = "y * (1 - y)";
+const DEFAULT_EXPRESSION = "y * (2 - y)";
+// Keep a generous margin above the smallest span that could overflow the
+// fixed-size SVG coordinate scales. Such microscopic windows are not useful
+// interactively and would otherwise produce NaN/Infinity geometry.
+const RENDER_SCALE_SAFETY_EXTENT = 4096;
 
 const DEFAULT_DEPENDENCIES: AppControllerDependencies = {
   compileExpression,
@@ -106,6 +111,10 @@ export class AppController {
     this.applyUpdate({ clearCurves: true });
   }
 
+  removeCurve(curveId: string): void {
+    this.applyUpdate({ removeCurveId: curveId });
+  }
+
   setShowPhaseFlow(showPhaseFlow: boolean): void {
     this.applyUpdate({ showPhaseFlow });
   }
@@ -139,8 +148,18 @@ export class AppController {
     }
 
     const clearCurves = update.clearCurves === true;
+    const removeCurveId = clearCurves ? undefined : update.removeCurveId;
+    let curveSeeds = previousState.curveSeeds;
+    if (clearCurves && previousState.curveSeeds.length > 0) {
+      curveSeeds = [];
+    } else if (
+      removeCurveId !== undefined &&
+      previousState.curveSeeds.some(({ id }) => id === removeCurveId)
+    ) {
+      curveSeeds = previousState.curveSeeds.filter(({ id }) => id !== removeCurveId);
+    }
     const showPhaseFlow = update.showPhaseFlow ?? previousState.showPhaseFlow;
-    const curvesChanged = clearCurves && previousState.curveSeeds.length > 0;
+    const curvesChanged = curveSeeds !== previousState.curveSeeds;
     const phaseFlowChanged = showPhaseFlow !== previousState.showPhaseFlow;
     const boundsErrorChanged = boundsError !== previousState.boundsError;
 
@@ -159,7 +178,7 @@ export class AppController {
       expression,
       bounds,
       boundsError,
-      curveSeeds: clearCurves ? [] : previousState.curveSeeds,
+      curveSeeds,
       showPhaseFlow
     };
 
@@ -177,6 +196,8 @@ export class AppController {
       this.trajectories = [];
     } else if (expressionChanged || boundsChanged) {
       this.recomputeAllTrajectories();
+    } else if (removeCurveId !== undefined && curvesChanged) {
+      this.trajectories = this.trajectories.filter(({ id }) => id !== removeCurveId);
     }
 
     this.publish();
@@ -305,7 +326,6 @@ export function createDefaultState(): AppState {
     expression: DEFAULT_EXPRESSION,
     bounds: { ...DEFAULT_BOUNDS },
     curveSeeds: [],
-    slopeDensity: 19,
     showPhaseFlow: false,
     boundsError: null
   };
@@ -355,6 +375,25 @@ function validateBounds(bounds: AxisBounds): string | null {
 
   if (bounds.yMin >= bounds.yMax) {
     return "The y-range must satisfy y min < y max.";
+  }
+
+  const tSpan = bounds.tMax - bounds.tMin;
+  const ySpan = bounds.yMax - bounds.yMin;
+
+  if (!Number.isFinite(tSpan)) {
+    return "The t-range must have a finite span.";
+  }
+
+  if (!Number.isFinite(ySpan)) {
+    return "The y-range must have a finite span.";
+  }
+
+  if (!Number.isFinite(RENDER_SCALE_SAFETY_EXTENT / tSpan)) {
+    return "The t-range is too narrow to render.";
+  }
+
+  if (!Number.isFinite(RENDER_SCALE_SAFETY_EXTENT / ySpan)) {
+    return "The y-range is too narrow to render.";
   }
 
   return null;

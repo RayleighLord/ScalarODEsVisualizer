@@ -92,6 +92,28 @@ describe("AppController dependency invalidation", () => {
     expect(solveSpy).not.toHaveBeenCalled();
   });
 
+  it("removes one curve without recomputing and retains the other trajectory references", () => {
+    const { controller, compileSpy, equilibriumSpy, settingsSpy, solveSpy, clearMathCalls } =
+      createHarness();
+    controller.addCurveSeed({ t: -1, y: 0.25 });
+    controller.addCurveSeed({ t: 0, y: 0.5 });
+    controller.addCurveSeed({ t: 1, y: 0.75 });
+    const [firstTrajectory, , thirdTrajectory] = controller.getViewModel().trajectories;
+    clearMathCalls();
+
+    controller.removeCurve("curve-2");
+
+    const viewModel = controller.getViewModel();
+    expect(viewModel.state.curveSeeds.map(({ id }) => id)).toEqual(["curve-1", "curve-3"]);
+    expect(viewModel.trajectories.map(({ id }) => id)).toEqual(["curve-1", "curve-3"]);
+    expect(viewModel.trajectories[0]).toBe(firstTrajectory);
+    expect(viewModel.trajectories[1]).toBe(thirdTrajectory);
+    expect(compileSpy).not.toHaveBeenCalled();
+    expect(equilibriumSpy).not.toHaveBeenCalled();
+    expect(settingsSpy).not.toHaveBeenCalled();
+    expect(solveSpy).not.toHaveBeenCalled();
+  });
+
   it("recompiles only when the expression changes and recomputes every retained seed", () => {
     const { controller, compileSpy, equilibriumSpy, settingsSpy, solveSpy, clearMathCalls } =
       createHarness();
@@ -125,7 +147,7 @@ describe("AppController dependency invalidation", () => {
     controller.addCurveSeed({ t: 1, y: 0.75 });
     clearMathCalls();
 
-    controller.applyBounds({ ...controller.getViewModel().state.bounds, tMax: 6 });
+    controller.applyBounds({ ...controller.getViewModel().state.bounds, tMax: 7 });
 
     expect(compileSpy).not.toHaveBeenCalled();
     expect(equilibriumSpy).not.toHaveBeenCalled();
@@ -133,7 +155,7 @@ describe("AppController dependency invalidation", () => {
     expect(solveSpy).toHaveBeenCalledTimes(2);
     clearMathCalls();
 
-    controller.applyBounds({ ...controller.getViewModel().state.bounds, yMin: -3 });
+    controller.applyBounds({ ...controller.getViewModel().state.bounds, yMin: -4 });
 
     expect(compileSpy).not.toHaveBeenCalled();
     expect(equilibriumSpy).toHaveBeenCalledTimes(1);
@@ -191,11 +213,62 @@ describe("AppController dependency invalidation", () => {
     ]);
   });
 
+  it("rejects finite endpoints whose range overflows", () => {
+    const { controller, compileSpy, equilibriumSpy, settingsSpy, solveSpy, clearMathCalls } =
+      createHarness();
+    const currentBounds = controller.getViewModel().state.bounds;
+    clearMathCalls();
+
+    controller.applyBounds({ ...currentBounds, tMin: -1e308, tMax: 1e308 });
+
+    expect(controller.getViewModel().state.bounds).toBe(currentBounds);
+    expect(controller.getViewModel().state.boundsError).toBe(
+      "The t-range must have a finite span."
+    );
+    expect(compileSpy).not.toHaveBeenCalled();
+    expect(equilibriumSpy).not.toHaveBeenCalled();
+    expect(settingsSpy).not.toHaveBeenCalled();
+    expect(solveSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects microscopic finite spans that would overflow plot coordinate scales", () => {
+    const { controller, compileSpy, equilibriumSpy, settingsSpy, solveSpy, clearMathCalls } =
+      createHarness();
+    const currentBounds = controller.getViewModel().state.bounds;
+    clearMathCalls();
+
+    controller.applyBounds({
+      ...currentBounds,
+      tMin: 0,
+      tMax: Number.MIN_VALUE
+    });
+
+    expect(controller.getViewModel().state.bounds).toBe(currentBounds);
+    expect(controller.getViewModel().state.boundsError).toBe(
+      "The t-range is too narrow to render."
+    );
+
+    controller.applyBounds({
+      ...currentBounds,
+      yMin: 0,
+      yMax: Number.MIN_VALUE
+    });
+
+    expect(controller.getViewModel().state.bounds).toBe(currentBounds);
+    expect(controller.getViewModel().state.boundsError).toBe(
+      "The y-range is too narrow to render."
+    );
+    expect(compileSpy).not.toHaveBeenCalled();
+    expect(equilibriumSpy).not.toHaveBeenCalled();
+    expect(settingsSpy).not.toHaveBeenCalled();
+    expect(solveSpy).not.toHaveBeenCalled();
+  });
+
   it("resets cached dependencies selectively and never solves discarded seeds", () => {
     const { controller, compileSpy, equilibriumSpy, settingsSpy, solveSpy, clearMathCalls } =
       createHarness();
     controller.addCurveSeed({ t: 0, y: 0.5 });
-    controller.applyBounds({ tMin: -6, tMax: 6, yMin: -3, yMax: 3 });
+    controller.applyBounds({ tMin: -4, tMax: 4, yMin: -2, yMax: 2 });
     clearMathCalls();
 
     controller.reset();
@@ -216,7 +289,7 @@ describe("AppController dependency invalidation", () => {
     const listener = vi.fn();
     controller.subscribe(listener);
     listener.mockClear();
-    const finalBounds: AxisBounds = { tMin: -6, tMax: 6, yMin: -3, yMax: 3 };
+    const finalBounds: AxisBounds = { tMin: -7, tMax: 7, yMin: -4, yMax: 4 };
 
     controller.applyUpdate({ expression: "t - y", bounds: finalBounds });
 
@@ -254,6 +327,31 @@ describe("AppController dependency invalidation", () => {
     expect(solveSpy).not.toHaveBeenCalled();
     expect(controller.getViewModel().state.curveSeeds).toEqual([]);
     expect(controller.getViewModel().trajectories).toEqual([]);
+  });
+
+  it("combines an expression change with one removal and solves only retained seeds once", () => {
+    const { controller, compileSpy, equilibriumSpy, settingsSpy, solveSpy, clearMathCalls } =
+      createHarness();
+    controller.addCurveSeed({ t: -1, y: 0.25 });
+    controller.addCurveSeed({ t: 0, y: 0.5 });
+    controller.addCurveSeed({ t: 1, y: 0.75 });
+    clearMathCalls();
+    const listener = vi.fn();
+    controller.subscribe(listener);
+    listener.mockClear();
+
+    controller.applyUpdate({ expression: "t - y", removeCurveId: "curve-2" });
+
+    const viewModel = controller.getViewModel();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(compileSpy).toHaveBeenCalledTimes(1);
+    expect(equilibriumSpy).toHaveBeenCalledTimes(1);
+    expect(settingsSpy).not.toHaveBeenCalled();
+    expect(solveSpy).toHaveBeenCalledTimes(2);
+    expect(solveSpy.mock.calls.map(([seed]) => seed.id)).toEqual(["curve-1", "curve-3"]);
+    expect(viewModel.state.expression).toBe("t - y");
+    expect(viewModel.state.curveSeeds.map(({ id }) => id)).toEqual(["curve-1", "curve-3"]);
+    expect(viewModel.trajectories.map(({ id }) => id)).toEqual(["curve-1", "curve-3"]);
   });
 
   it("combines a pending expression with phase flow and publishes one solved state", () => {

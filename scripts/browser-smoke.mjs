@@ -264,6 +264,9 @@ async function assertCurveSeedScreenGeometry(page) {
 
 async function assertDebouncedEquationEditing(page) {
   const input = page.getByLabel("ODE right-hand side");
+  const previewSource = page.locator(
+    '#plot-ode-preview annotation[encoding="application/x-tex"]'
+  );
   await input.fill(await input.inputValue());
   assert.equal(await page.locator("#equation-status").textContent(), "Updating…");
   await expectText(page.locator("#equation-status"), "Ready", 1500);
@@ -273,6 +276,17 @@ async function assertDebouncedEquationEditing(page) {
   await page.locator("#t-max-input").fill(await page.locator("#t-max-input").inputValue());
   assert.equal(await page.locator("#equation-status").textContent(), "Ready");
   assert.equal(await page.locator("#plot-ode-preview").getAttribute("aria-busy"), null);
+
+  await input.fill("2/3 * y");
+  await expectText(page.locator("#equation-status"), "Ready", 1500);
+  assert.equal(await previewSource.textContent(), "y' = \\frac{2}{3} \\cdot y");
+
+  await input.fill("(2/3) * y");
+  await expectText(page.locator("#equation-status"), "Ready", 1500);
+  assert.equal(
+    await previewSource.textContent(),
+    "y' = \\left(\\frac{2}{3}\\right) \\cdot y"
+  );
 
   await input.fill("sin(y) + 0.1 * t");
   assert.equal(await page.locator("#equation-status").textContent(), "Updating…");

@@ -126,17 +126,29 @@ export function nodesAreAdditiveInverses(
   left: ExpressionNode,
   right: ExpressionNode
 ): boolean {
+  const semanticLeft = unwrapUnaryPlus(left);
+  const semanticRight = unwrapUnaryPlus(right);
+
   return (
-    (left.type === "unary" &&
-      left.operator === "-" &&
-      structurallyEqual(left.argument, right)) ||
-    (right.type === "unary" &&
-      right.operator === "-" &&
-      structurallyEqual(left, right.argument))
+    (semanticLeft.type === "unary" &&
+      semanticLeft.operator === "-" &&
+      structurallyEqual(semanticLeft.argument, semanticRight)) ||
+    (semanticRight.type === "unary" &&
+      semanticRight.operator === "-" &&
+      structurallyEqual(semanticLeft, semanticRight.argument))
   );
 }
 
-export function structurallyEqual(left: ExpressionNode, right: ExpressionNode): boolean {
+export function structurallyEqual(
+  left: ExpressionNode,
+  right: ExpressionNode
+): boolean {
+  const semanticLeft = unwrapUnaryPlus(left);
+  const semanticRight = unwrapUnaryPlus(right);
+  if (semanticLeft !== left || semanticRight !== right) {
+    return structurallyEqual(semanticLeft, semanticRight);
+  }
+
   if (left.type !== right.type) {
     return false;
   }
@@ -171,6 +183,14 @@ export function structurallyEqual(left: ExpressionNode, right: ExpressionNode): 
         )
       );
   }
+}
+
+function unwrapUnaryPlus(node: ExpressionNode): ExpressionNode {
+  let semanticNode = node;
+  while (semanticNode.type === "unary" && semanticNode.operator === "+") {
+    semanticNode = semanticNode.argument;
+  }
+  return semanticNode;
 }
 
 export function evaluateConstantNode(node: ExpressionNode): number | null {

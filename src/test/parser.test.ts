@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import katex from "katex";
 
 import { compileExpression } from "../math/parser";
 
@@ -20,6 +21,7 @@ describe("compileExpression", () => {
     expect(compileExpression("-y^2").latex).toBe("-y^{2}");
     expect(compileExpression("(-y)^2").latex).toBe("\\left(-y\\right)^{2}");
     expect(compileExpression("y^-2").latex).toBe("y^{-2}");
+    expect(compileExpression("y^(-2)").latex).toBe("y^{-2}");
   });
 
   it("detects autonomous equations", () => {
@@ -38,6 +40,16 @@ describe("compileExpression", () => {
     expect(zeroTimeProduct.dependsOnY).toBe(true);
     expect(domainLimitedTime.isAutonomous).toBe(false);
     expect(domainLimitedTime.evaluateWithDiagnostics(0, 1).status).toBe("invalid");
+
+    const groupedCancellation = compileExpression("t - (t)");
+    const unaryPlusCancellation = compileExpression("t - +t");
+    const groupedDomainHole = compileExpression("0 / (t)");
+    expect(groupedCancellation.isAutonomous).toBe(true);
+    expect(groupedCancellation.isIdenticallyZero).toBe(true);
+    expect(unaryPlusCancellation.isAutonomous).toBe(true);
+    expect(unaryPlusCancellation.isIdenticallyZero).toBe(true);
+    expect(groupedDomainHole.isAutonomous).toBe(false);
+    expect(groupedDomainHole.evaluateWithDiagnostics(0, 1).status).toBe("invalid");
   });
 
   it("generates LaTeX for rendered previews", () => {
@@ -50,13 +62,108 @@ describe("compileExpression", () => {
 
   it("places a whole-numerator minus before a rendered fraction", () => {
     expect(compileExpression("-y/2").latex).toBe("-\\frac{y}{2}");
-    expect(compileExpression("(-y)/(-2)").latex).toBe("-\\frac{y}{-2}");
+    expect(compileExpression("(-y)/(-2)").latex).toBe("\\frac{y}{2}");
     expect(compileExpression("-(y/2)").latex).toBe(
       "-\\left(\\frac{y}{2}\\right)"
     );
-    expect(compileExpression("y/-t").latex).toBe("\\frac{y}{-t}");
+    expect(compileExpression("y/-t").latex).toBe("-\\frac{y}{t}");
     expect(compileExpression("-(y + t)/2").latex).toBe(
       "-\\frac{y + t}{2}"
+    );
+  });
+
+  it("distinguishes explicit groups from visually atomic fractional factors", () => {
+    expect(compileExpression("2/3 * y").latex).toBe("\\frac{2}{3} \\cdot y");
+    expect(compileExpression("(2/3) * y").latex).toBe(
+      "\\left(\\frac{2}{3}\\right) \\cdot y"
+    );
+    expect(compileExpression("2 * (y/3)").latex).toBe(
+      "2 \\cdot \\left(\\frac{y}{3}\\right)"
+    );
+    expect(compileExpression("y * (1-y)").latex).toBe(
+      "y \\cdot \\left(1 - y\\right)"
+    );
+    expect(compileExpression("2 * (y)").latex).toBe(
+      "2 \\cdot \\left(y\\right)"
+    );
+    expect(compileExpression("y-(t-y)").latex).toBe(
+      "y - \\left(t - y\\right)"
+    );
+    expect(compileExpression("(y/t)^2").latex).toBe(
+      "\\left(\\frac{y}{t}\\right)^{2}"
+    );
+  });
+
+  it("lets LaTeX delimiters carry groups that are redundant inside them", () => {
+    expect(compileExpression("(y+t)/2").latex).toBe("\\frac{y + t}{2}");
+    expect(compileExpression("y/(t+1)").latex).toBe("\\frac{y}{t + 1}");
+    expect(compileExpression("y^(t+1)").latex).toBe("y^{t + 1}");
+    expect(compileExpression("sqrt((y+t))").latex).toBe("\\sqrt{y + t}");
+  });
+
+  it("renders signs without ambiguous adjacent operators", () => {
+    expect(compileExpression("y + -t").latex).toBe("y - t");
+    expect(compileExpression("y - -t").latex).toBe("y + t");
+    expect(compileExpression("2 * -y").latex).toBe("-2 \\cdot y");
+    expect(compileExpression("-2 * -y").latex).toBe("2 \\cdot y");
+    expect(compileExpression("--y").latex).toBe("y");
+    expect(compileExpression("-(-y)").latex).toBe("-\\left(-y\\right)");
+  });
+
+  it("uses conventional function names and function powers", () => {
+    expect(compileExpression("asin(y) + acos(t) + atan(y)").latex).toBe(
+      "\\arcsin\\left(y\\right) + \\arccos\\left(t\\right) + \\arctan\\left(y\\right)"
+    );
+    expect(compileExpression("sin(y)^2").latex).toBe(
+      "\\sin^{2}\\left(y\\right)"
+    );
+    const reciprocalSine = compileExpression("sin(y)^-1");
+    expect(reciprocalSine.latex).toBe(
+      "\\left(\\sin\\left(y\\right)\\right)^{-1}"
+    );
+    expect(compileExpression("sin(y)^(-1)").latex).toBe(
+      "\\left(\\sin\\left(y\\right)\\right)^{-1}"
+    );
+    expect(compileExpression("pow(sin(y),-1)").latex).toBe(
+      "\\left(\\sin\\left(y\\right)\\right)^{-1}"
+    );
+    expect(reciprocalSine.evaluate(0, 0.5)).toBeCloseTo(
+      1 / Math.sin(0.5),
+      12
+    );
+    expect(compileExpression("(sin(y))^2").latex).toBe(
+      "\\left(\\sin\\left(y\\right)\\right)^{2}"
+    );
+  });
+
+  it("renders nested powers without invalid double superscripts", () => {
+    const binaryPower = compileExpression("pow(y,2)^3");
+    const functionPower = compileExpression("pow(pow(y,2),3)");
+
+    expect(binaryPower.latex).toBe("\\left(y^{2}\\right)^{3}");
+    expect(functionPower.latex).toBe("\\left(y^{2}\\right)^{3}");
+    expect(() =>
+      katex.renderToString(binaryPower.latex, { throwOnError: true })
+    ).not.toThrow();
+  });
+
+  it("renders precise and scientific numeric literals faithfully", () => {
+    expect(compileExpression("1e-7").latex).toBe("10^{-7}");
+    expect(compileExpression("1e-6").latex).toBe("10^{-6}");
+    expect(compileExpression("1e20").latex).toBe("10^{20}");
+    expect(compileExpression("2.5e-7").latex).toBe(
+      "2.5 \\times 10^{-7}"
+    );
+    expect(compileExpression("1e50").latex).toBe("10^{50}");
+    expect(compileExpression("1e-7^y").latex).toBe(
+      "\\left(10^{-7}\\right)^{y}"
+    );
+    expect(compileExpression("0.123456789012345").latex).toBe(
+      "0.123456789012345"
+    );
+    expect(compileExpression("0.0000001").latex).toBe("0.0000001");
+    expect(compileExpression("1000000000000000000000").latex).toBe(
+      "1000000000000000000000"
     );
   });
 
@@ -123,9 +230,19 @@ describe("compileExpression", () => {
 
   it("preserves exact cancellation in domain interval checks", () => {
     const expression = compileExpression("1 / (1e12*y - 1e12*y + 1)");
+    const groupedExpression = compileExpression(
+      "1 / (1e12*y - (1e12*y) + 1)"
+    );
 
     expect(
       expression.checkSegmentDomain(
+        { t: -1, y: -2 },
+        { t: 1, y: 2 },
+        { segmentSampleCount: 2 }
+      ).ok
+    ).toBe(true);
+    expect(
+      groupedExpression.checkSegmentDomain(
         { t: -1, y: -2 },
         { t: 1, y: 2 },
         { segmentSampleCount: 2 }
@@ -158,6 +275,12 @@ describe("compileExpression", () => {
     expect(compileExpression("sin(y) + -sin(y)").isIdenticallyZero).toBe(true);
     expect(compileExpression("0 / y").isIdenticallyZero).toBe(false);
     expect(compileExpression("0 * t^-1").isAutonomous).toBe(false);
+
+    const groupedNegativePower = compileExpression("0 * ((t)^(-1))");
+    expect(groupedNegativePower.isAutonomous).toBe(false);
+    expect(groupedNegativePower.evaluateWithDiagnostics(0, 1).status).toBe(
+      "invalid"
+    );
   });
 
   it("reports log and sqrt domain boundaries", () => {

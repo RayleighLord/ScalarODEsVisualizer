@@ -58,7 +58,7 @@ class PrattParser {
     const token = this.consume();
 
     if (token.type === "number") {
-      return { type: "number", value: token.value };
+      return { type: "number", value: token.value, sourceLexeme: token.lexeme };
     }
 
     if (token.type === "identifier") {
@@ -98,7 +98,10 @@ class PrattParser {
       if (closing.type !== "paren" || closing.value !== ")") {
         throw new ExpressionError('Expected ")" to close the current group.');
       }
-      return expression;
+      return {
+        ...expression,
+        explicitGroupDepth: (expression.explicitGroupDepth ?? 0) + 1
+      };
     }
 
     throw new ExpressionError(`Unexpected token near "${tokenLabel(token)}".`);

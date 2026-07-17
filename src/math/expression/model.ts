@@ -10,18 +10,33 @@ export type Token =
   | { type: "comma"; value: "," }
   | { type: "eof" };
 
+interface ExpressionPresentation {
+  /** Source grouping used only when presenting the expression back to the user. */
+  explicitGroupDepth?: number;
+}
+
+type PresentedNode<Node> = Node & ExpressionPresentation;
+
 export type ExpressionNode =
-  | { type: "number"; value: number }
-  | { type: "variable"; name: VariableName }
-  | { type: "constant"; name: string; value: number }
-  | { type: "unary"; operator: "+" | "-"; argument: ExpressionNode }
-  | {
+  | PresentedNode<{ type: "number"; value: number; sourceLexeme?: string }>
+  | PresentedNode<{ type: "variable"; name: VariableName }>
+  | PresentedNode<{ type: "constant"; name: string; value: number }>
+  | PresentedNode<{
+      type: "unary";
+      operator: "+" | "-";
+      argument: ExpressionNode;
+    }>
+  | PresentedNode<{
       type: "binary";
       operator: Operator;
       left: ExpressionNode;
       right: ExpressionNode;
-    }
-  | { type: "function"; name: string; arguments: ExpressionNode[] };
+    }>
+  | PresentedNode<{
+      type: "function";
+      name: string;
+      arguments: ExpressionNode[];
+    }>;
 
 export interface NumericInterval {
   min: number;

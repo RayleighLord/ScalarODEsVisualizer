@@ -25,10 +25,13 @@ const Y_GRID_TARGET = 6;
 const GRID_MINOR_DIVISIONS = 5;
 const ANNOTATION_EDGE_INSET = 8;
 const ANNOTATION_COLLISION_GAP = 6;
+const CURVE_SEED_HALO_RADIUS = 7;
+const CURVE_SEED_RADIUS = 4;
+const SINGLE_POINT_SEED_RADIUS = 3.5;
 const CURVE_PALETTE = [
-  { stroke: "#1b7f5a", seed: "#4fa27f", halo: "rgba(27, 127, 90, 0.22)" },
-  { stroke: "#c4454d", seed: "#d8777d", halo: "rgba(196, 69, 77, 0.22)" },
   { stroke: "#2f6fdb", seed: "#6d98e5", halo: "rgba(47, 111, 219, 0.22)" },
+  { stroke: "#c4454d", seed: "#d8777d", halo: "rgba(196, 69, 77, 0.22)" },
+  { stroke: "#1b7f5a", seed: "#4fa27f", halo: "rgba(27, 127, 90, 0.22)" },
   { stroke: "#7b4db3", seed: "#9f79ca", halo: "rgba(123, 77, 179, 0.22)" },
   { stroke: "#c9821f", seed: "#dca656", halo: "rgba(201, 130, 31, 0.22)" },
   { stroke: "#168c88", seed: "#55aaa7", halo: "rgba(22, 140, 136, 0.22)" },
@@ -177,6 +180,7 @@ export class ODEPlotRenderer {
     }
 
     this.positionLatexAnnotations();
+    this.refreshCurveSeedScreenGeometry();
     this.refreshPhaseFlowScreenGeometry();
   }
 
@@ -507,6 +511,35 @@ export class ODEPlotRenderer {
 
     this.curveBoundsKey = boundsKey;
     this.renderedTrajectories = trajectories;
+    this.refreshCurveSeedScreenGeometry();
+  }
+
+  private refreshCurveSeedScreenGeometry(): void {
+    const screenMatrix = this.svg.getScreenCTM();
+    if (!screenMatrix) {
+      return;
+    }
+
+    const scaleX = Math.hypot(screenMatrix.a, screenMatrix.b);
+    const scaleY = Math.hypot(screenMatrix.c, screenMatrix.d);
+    if (scaleX <= 0 || scaleY <= 0) {
+      return;
+    }
+
+    this.curveLayer
+      .querySelectorAll<SVGGElement>("[data-curve-seed-marker]")
+      .forEach((marker) => {
+        const x = Number(marker.dataset.curveSeedX);
+        const y = Number(marker.dataset.curveSeedY);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return;
+        }
+
+        marker.setAttribute(
+          "transform",
+          `translate(${x} ${y}) scale(${1 / scaleX} ${1 / scaleY})`
+        );
+      });
   }
 
   private renderPhaseFlow(
@@ -1135,23 +1168,31 @@ function createCurveGroup(
     );
   }
 
-  group.append(
+  const seedMarker = createSvgElement("g", {
+    "data-curve-seed-marker": "true",
+    "data-curve-seed-x": `${seedPoint.x}`,
+    "data-curve-seed-y": `${seedPoint.y}`
+  });
+  seedMarker.append(
     createSvgElement("circle", {
-      cx: `${seedPoint.x}`,
-      cy: `${seedPoint.y}`,
-      r: "8",
-      fill: palette.halo
+      cx: "0",
+      cy: "0",
+      r: `${CURVE_SEED_HALO_RADIUS}`,
+      fill: palette.halo,
+      "data-curve-seed-halo": "true"
     }),
     createSvgElement("circle", {
-      cx: `${seedPoint.x}`,
-      cy: `${seedPoint.y}`,
-      r: trajectory.points.length < 2 ? "4" : "4.5",
+      cx: "0",
+      cy: "0",
+      r: `${trajectory.points.length < 2 ? SINGLE_POINT_SEED_RADIUS : CURVE_SEED_RADIUS}`,
       fill: palette.seed,
       stroke: "var(--plot-surface)",
       "stroke-width": "1.5",
-      "vector-effect": "non-scaling-stroke"
+      "vector-effect": "non-scaling-stroke",
+      "data-curve-seed-core": "true"
     })
   );
+  group.append(seedMarker);
 
   return group;
 }

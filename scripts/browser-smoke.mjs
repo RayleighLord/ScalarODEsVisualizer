@@ -56,6 +56,7 @@ try {
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await assertHealthyInitialRender(page);
   await assertIncrementalCurveAndOverlayRendering(page);
+  await assertCurveSeedScreenGeometry(page);
   await assertPhaseFlowTrackAlignment(page);
   await assertDebouncedEquationEditing(page);
   await assertContextMenuCurveRemoval(page);
@@ -92,6 +93,16 @@ async function assertHealthyInitialRender(page) {
   assert.equal(await page.locator("#t-max-input").inputValue(), "6");
   assert.equal(await page.locator("#y-min-input").inputValue(), "-3");
   assert.equal(await page.locator("#y-max-input").inputValue(), "3");
+  assert.equal(
+    await page.locator("#ode-plot > title").count(),
+    0,
+    "The plot must not expose a native SVG hover tooltip."
+  );
+  assert.equal(
+    await page.locator("#ode-plot").getAttribute("aria-label"),
+    "Interactive direction field and integral curves"
+  );
+  assert.equal(await page.locator("#ode-plot").getAttribute("aria-describedby"), "plot-description");
   assert.equal(
     await page.locator('[data-layer="slopes"] path').getAttribute("data-slope-columns"),
     "59"
@@ -213,6 +224,42 @@ async function assertIncrementalCurveAndOverlayRendering(page) {
     "slope",
     "Toggling phase flow must not rebuild the direction field."
   );
+}
+
+async function assertCurveSeedScreenGeometry(page) {
+  const marker = page.locator("[data-curve-seed-marker]").first();
+  await marker.evaluate((node) => node.setAttribute("data-resize-retained", "yes"));
+
+  for (const viewport of [
+    { width: 960, height: 720 },
+    { width: 1920, height: 730 }
+  ]) {
+    await page.setViewportSize(viewport);
+    await waitForResizeRender(page);
+
+    assert.equal(
+      await marker.getAttribute("data-resize-retained"),
+      "yes",
+      "Resize must retain existing curve seed markers."
+    );
+
+    const haloBox = await marker.locator("[data-curve-seed-halo]").boundingBox();
+    const coreBox = await marker.locator("[data-curve-seed-core]").boundingBox();
+    assert.ok(haloBox);
+    assert.ok(coreBox);
+    assert.ok(
+      Math.abs(haloBox.width - haloBox.height) < 0.5 &&
+        Math.abs(coreBox.width - coreBox.height) < 0.5,
+      `Curve seed markers must remain circular at ${viewport.width}x${viewport.height}.`
+    );
+    assert.ok(
+      Math.abs(haloBox.width - 14) < 0.75 && Math.abs(coreBox.width - 9.5) < 0.75,
+      `Curve seed markers must retain their compact screen-space size (halo ${haloBox.width.toFixed(2)}x${haloBox.height.toFixed(2)}, core ${coreBox.width.toFixed(2)}x${coreBox.height.toFixed(2)}).`
+    );
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await waitForResizeRender(page);
 }
 
 async function assertDebouncedEquationEditing(page) {

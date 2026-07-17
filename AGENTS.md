@@ -58,4 +58,6 @@ Current defaults:
 
 ## Maintenance
 
+Keep `README.md` minimal and showcase-led: retain only the title, live explorer link, a brief description, and a current demo visual when one is available. Do not turn it into a detailed user or developer guide, and never present stale interface media.
+
 When a permanent requirement changes this contract, update the existing guidance instead of appending a contradictory rule.

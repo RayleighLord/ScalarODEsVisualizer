@@ -1,5 +1,6 @@
 import katex from "katex";
 
+import { evaluateConstantExpression, formatExpressionError } from "./math/parser";
 import { ODEPlotRenderer } from "./plot/renderer";
 import { chooseSafeSnapPoint } from "./plot/snap";
 import { AppController, type ViewModel } from "./ui/controller";
@@ -21,6 +22,12 @@ export function startApp(): void {
   const tMaxInput = getElement<HTMLInputElement>("t-max-input");
   const yMinInput = getElement<HTMLInputElement>("y-min-input");
   const yMaxInput = getElement<HTMLInputElement>("y-max-input");
+  const trajectoryPointDisclosure = getElement<HTMLElement>("trajectory-point-disclosure");
+  const trajectoryPointSummary = getElement<HTMLButtonElement>("trajectory-point-summary");
+  const trajectoryPointControls = getElement<HTMLFormElement>("trajectory-point-controls");
+  const trajectoryTInput = getElement<HTMLInputElement>("trajectory-t-input");
+  const trajectoryYInput = getElement<HTMLInputElement>("trajectory-y-input");
+  const trajectoryPointError = getElement<HTMLElement>("trajectory-point-error");
   const phaseFlowToggle = getElement<HTMLInputElement>("phase-flow-toggle");
   const plotOdePreview = getElement<HTMLElement>("plot-ode-preview");
   const equationFamilyMath = getElement<HTMLElement>("equation-family-math");
@@ -161,7 +168,90 @@ export function startApp(): void {
     }
   };
 
+  const trajectoryPointInputs = [trajectoryTInput, trajectoryYInput];
+  const setTrajectoryPointError = (
+    message: string | null,
+    invalidInputs: HTMLInputElement[] = []
+  ) => {
+    const invalidSet = new Set(invalidInputs);
+    trajectoryPointInputs.forEach((input) => {
+      input.setAttribute("aria-invalid", `${invalidSet.has(input)}`);
+    });
+    if (message === null) {
+      setTextContent(trajectoryPointError, "");
+      trajectoryPointError.hidden = true;
+    } else {
+      trajectoryPointError.hidden = false;
+      setTextContent(trajectoryPointError, message);
+    }
+  };
+
+  const addTrajectoryFromPoint = () => {
+    commitPendingExpression();
+    const viewModel = controller.getViewModel();
+    if (!viewModel.compiled || viewModel.equationError) {
+      setTrajectoryPointError("Fix the equation before adding a trajectory.");
+      return;
+    }
+
+    const coordinateSpecs = [
+      { input: trajectoryTInput, label: "t₀" },
+      { input: trajectoryYInput, label: "y₀" }
+    ];
+    const coordinateValues: number[] = [];
+    const invalidCoordinateInputs: HTMLInputElement[] = [];
+    let firstCoordinateError: string | null = null;
+    coordinateSpecs.forEach(({ input, label }) => {
+      try {
+        coordinateValues.push(evaluateConstantExpression(input.value));
+      } catch (error) {
+        coordinateValues.push(Number.NaN);
+        invalidCoordinateInputs.push(input);
+        firstCoordinateError ??= `${label}: ${formatExpressionError(error)}`;
+      }
+    });
+    if (firstCoordinateError !== null) {
+      setTrajectoryPointError(firstCoordinateError, invalidCoordinateInputs);
+      invalidCoordinateInputs[0]?.focus();
+      return;
+    }
+
+    const point = { t: coordinateValues[0], y: coordinateValues[1] };
+    const { bounds } = viewModel.state;
+    const outsideInputs = [
+      ...(point.t < bounds.tMin || point.t > bounds.tMax ? [trajectoryTInput] : []),
+      ...(point.y < bounds.yMin || point.y > bounds.yMax ? [trajectoryYInput] : [])
+    ];
+    if (outsideInputs.length > 0) {
+      setTrajectoryPointError("Choose a point inside the current window.", outsideInputs);
+      outsideInputs[0]?.focus();
+      return;
+    }
+
+    const diagnostics = viewModel.compiled.evaluateWithDiagnostics(
+      point.t,
+      point.y,
+      SEED_EVALUATION_OPTIONS
+    );
+    if (diagnostics.status !== "ok") {
+      setTrajectoryPointError("The ODE is undefined at this point.", trajectoryPointInputs);
+      return;
+    }
+
+    setTrajectoryPointError(null);
+    controller.addCurveSeed(point);
+  };
+
+  trajectoryPointInputs.forEach((input) => {
+    input.addEventListener("input", () => setTrajectoryPointError(null));
+  });
+  trajectoryPointControls.addEventListener("submit", (event) => {
+    event.preventDefault();
+    addTrajectoryFromPoint();
+  });
+
   equationInput.addEventListener("input", () => {
+    setTrajectoryPointError(null);
     pendingExpression = equationInput.value;
     if (pendingExpressionTimer !== 0) {
       window.clearTimeout(pendingExpressionTimer);
@@ -195,7 +285,10 @@ export function startApp(): void {
   };
 
   [tMinInput, tMaxInput, yMinInput, yMaxInput].forEach((input) => {
-    input.addEventListener("input", applyLiveBounds);
+    input.addEventListener("input", () => {
+      setTrajectoryPointError(null);
+      applyLiveBounds();
+    });
   });
 
   boundsForm.addEventListener("submit", (event) => {
@@ -205,6 +298,9 @@ export function startApp(): void {
 
   resetButton.addEventListener("click", () => {
     cancelPendingExpression();
+    trajectoryTInput.value = "0";
+    trajectoryYInput.value = "1";
+    setTrajectoryPointError(null);
     controller.reset();
   });
 
@@ -227,9 +323,24 @@ export function startApp(): void {
 
   const uiOverlays = Array.from(document.querySelectorAll<HTMLElement>("[data-ui-overlay]"));
   const setHelpOpen = (open: boolean) => {
+    if (open) {
+      setTrajectoryPointOpen(false);
+    }
     helpPopover.hidden = !open;
     helpButton.setAttribute("aria-expanded", `${open}`);
   };
+  const setTrajectoryPointOpen = (open: boolean) => {
+    trajectoryPointDisclosure.dataset.open = `${open}`;
+    trajectoryPointSummary.setAttribute("aria-expanded", `${open}`);
+    trajectoryPointControls.hidden = !open;
+    if (open) {
+      setHelpOpen(false);
+      window.requestAnimationFrame(() => trajectoryTInput.focus());
+    }
+  };
+  trajectoryPointSummary.addEventListener("click", () => {
+    setTrajectoryPointOpen(trajectoryPointSummary.getAttribute("aria-expanded") !== "true");
+  });
   toggleUiButton.addEventListener("click", () => {
     const hideUi = toggleUiButton.getAttribute("aria-pressed") !== "true";
     setHelpOpen(false);

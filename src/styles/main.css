@@ -186,7 +186,8 @@ button {
 }
 
 .equation-input,
-input[type="number"] {
+input[type="number"],
+.trajectory-coordinate-input {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--input-border);
@@ -205,7 +206,8 @@ input[type="number"] {
 }
 
 .equation-input:hover,
-input[type="number"]:hover {
+input[type="number"]:hover,
+.trajectory-coordinate-input:hover {
   border-color: color-mix(in srgb, var(--focus) 52%, var(--panel-border));
 }
 
@@ -216,6 +218,7 @@ input[aria-invalid="true"] {
 
 .equation-input:focus-visible,
 input[type="number"]:focus-visible,
+.trajectory-coordinate-input:focus-visible,
 button:focus-visible,
 .toggle-row:has(input:focus-visible) {
   outline: 2px solid var(--focus);
@@ -436,6 +439,114 @@ button:focus-visible,
 
 .bound-symbol .katex {
   font-size: 1em;
+}
+
+.trajectory-point-disclosure {
+  padding-top: 0.42rem;
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 78%, transparent);
+}
+
+.trajectory-point-summary {
+  display: grid;
+  width: 100%;
+  min-height: 1.42rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.02rem 0.08rem;
+  border-radius: 7px;
+  color: #185f5c;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.69rem;
+  font-weight: 780;
+}
+
+.trajectory-point-summary::after {
+  width: 1rem;
+  content: "+";
+  color: var(--focus);
+  font-size: 0.9rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.trajectory-point-summary[aria-expanded="true"]::after {
+  content: "−";
+}
+
+.trajectory-point-summary:hover {
+  background: color-mix(in srgb, var(--focus) 7%, transparent);
+}
+
+.trajectory-point-summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--focus-halo);
+}
+
+.trajectory-point-summary-symbol {
+  color: var(--muted-ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.trajectory-point-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 3.2rem;
+  align-items: center;
+  gap: 0.38rem;
+  margin-top: 0.42rem;
+}
+
+.trajectory-point-field {
+  display: grid;
+  grid-template-columns: 1.35rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.trajectory-point-symbol {
+  color: var(--page-ink);
+  font-size: 0.86rem;
+  text-align: right;
+}
+
+.trajectory-coordinate-input {
+  height: 1.92rem;
+  padding: 0.28rem 0.3rem;
+  border-radius: 8px;
+  font-size: 0.76rem;
+}
+
+.trajectory-add-button {
+  min-height: 1.92rem;
+  padding: 0.28rem 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--focus) 42%, var(--panel-border));
+  border-radius: 9px;
+  color: #ffffff;
+  background: var(--focus);
+  cursor: pointer;
+  font-size: 0.69rem;
+  font-weight: 780;
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.trajectory-add-button:hover {
+  background: #126b66;
+  transform: translateY(-1px);
+}
+
+.trajectory-point-error {
+  grid-column: 1 / -1;
+  padding: 0.28rem 0.38rem;
+  margin: 0;
+  border-radius: 8px;
+  color: #a9343f;
+  background: var(--invalid-surface);
+  font-size: 0.65rem;
+  line-height: 1.3;
 }
 
 input[type="number"] {

@@ -12,6 +12,7 @@ import {
 } from "./expression/diagnostics";
 import { analyzeDomain, type DomainAnalysis } from "./expression/domain";
 import {
+  collectSyntacticVariables,
   collectSemanticVariables,
   compileNodeEvaluator,
   isStaticallyZero,
@@ -102,6 +103,50 @@ export function compileExpression(source: string): CompiledExpression {
     prepareEvaluation: (options) => createPreparedEvaluation(resolveOptions(options)),
     evaluateAutonomous: isAutonomous ? (value: number) => evaluator(0, value) : undefined
   };
+}
+
+/**
+ * Parses a standalone real-valued constant expression for compact numeric UI
+ * fields. It shares the ODE grammar while rejecting coordinate-dependent
+ * variables and values outside the expression's real, finite domain.
+ */
+export function evaluateConstantExpression(source: string): number {
+  const normalizedSource = source.trim();
+  if (!normalizedSource) {
+    throw new ExpressionError("Enter a coordinate expression.");
+  }
+
+  let ast: ReturnType<typeof parseExpression>;
+  try {
+    ast = parseExpression(normalizedSource);
+  } catch (error) {
+    const unknownIdentifier =
+      error instanceof ExpressionError
+        ? /^Unknown identifier "([^"]+)"\./.exec(error.message)
+        : null;
+    if (unknownIdentifier) {
+      throw new ExpressionError(
+        `Unknown identifier "${unknownIdentifier[1]}". Use lowercase constants such as "pi" and "e", or a supported function.`
+      );
+    }
+    throw error;
+  }
+  if (collectSyntacticVariables(ast).size > 0) {
+    throw new ExpressionError("Coordinate expressions cannot use t or y.");
+  }
+
+  const diagnostics = evaluateCompiledWithDiagnostics(
+    compileNodeEvaluator(ast),
+    analyzeDomain(ast),
+    0,
+    0,
+    DEFAULT_NORMALIZED_EVALUATION_OPTIONS
+  );
+  if (diagnostics.status === "invalid" || !Number.isFinite(diagnostics.value)) {
+    throw new ExpressionError("Coordinate expression must have a finite real value.");
+  }
+
+  return diagnostics.value;
 }
 
 interface EvaluationOptionsCacheEntry {

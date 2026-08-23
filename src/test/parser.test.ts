@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import katex from "katex";
 
-import { compileExpression } from "../math/parser";
+import { compileExpression, evaluateConstantExpression } from "../math/parser";
 
 describe("compileExpression", () => {
   it("evaluates parsed expressions with t and y", () => {
@@ -303,5 +303,49 @@ describe("compileExpression", () => {
     expect(
       tanExpression.checkSegmentDomain({ t: 0, y: 1 }, { t: 0, y: 2 }).status
     ).toBe("near-singular");
+  });
+});
+
+describe("evaluateConstantExpression", () => {
+  it("evaluates supported constants, functions, and powers", () => {
+    expect(evaluateConstantExpression("pi")).toBeCloseTo(Math.PI, 14);
+    expect(evaluateConstantExpression("log(e)")).toBeCloseTo(1, 14);
+    expect(evaluateConstantExpression("sqrt(2)")).toBeCloseTo(Math.SQRT2, 14);
+    expect(evaluateConstantExpression("2^3^2")).toBe(512);
+    expect(evaluateConstantExpression("pow(2, 3) + sin(pi/2)")).toBeCloseTo(9, 14);
+  });
+
+  it("accepts finite real values at or near valid domain boundaries", () => {
+    expect(evaluateConstantExpression("sqrt(0)")).toBe(0);
+    expect(evaluateConstantExpression("asin(1)")).toBeCloseTo(Math.PI / 2, 14);
+    expect(evaluateConstantExpression("log(1e-10)")).toBeCloseTo(Math.log(1e-10), 14);
+  });
+
+  it("rejects variables even when their contribution cancels", () => {
+    for (const source of ["t", "y + 1", "t - t", "0 * y"]) {
+      expect(() => evaluateConstantExpression(source)).toThrow(
+        "Coordinate expressions cannot use t or y."
+      );
+    }
+  });
+
+  it("rejects blank, malformed, non-real, and non-finite expressions", () => {
+    expect(() => evaluateConstantExpression("")).toThrow("Enter a coordinate expression.");
+    expect(() => evaluateConstantExpression("sin(")).toThrow();
+    expect(() => evaluateConstantExpression("PI")).toThrow(
+      'Use lowercase constants such as "pi" and "e", or a supported function.'
+    );
+    expect(() => compileExpression("PI")).toThrow(
+      'Use variables "t" and "y" or a supported constant.'
+    );
+    expect(() => evaluateConstantExpression("log(-1)")).toThrow(
+      "Coordinate expression must have a finite real value."
+    );
+    expect(() => evaluateConstantExpression("1 / 0")).toThrow(
+      "Coordinate expression must have a finite real value."
+    );
+    expect(() => evaluateConstantExpression("exp(1000)")).toThrow(
+      "Coordinate expression must have a finite real value."
+    );
   });
 });

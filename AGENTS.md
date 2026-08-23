@@ -6,7 +6,7 @@ This is a client-only Vite application for exploring scalar first-order ODEs. It
 
 Use `y' = f(y,t)` in product-facing copy. Internal numerical APIs accept arguments as `(t, y)`; preserve that ordering in code.
 
-The application provides a full-window direction field, live axis limits, integral curves through clicked points, autonomous equilibrium detection, and an optional one-dimensional phase-flow overlay.
+The application provides a full-window direction field, live axis limits, integral curves through clicked or explicitly entered points, autonomous equilibrium detection, and an optional one-dimensional phase-flow overlay.
 
 Current defaults:
 
@@ -17,7 +17,7 @@ Current defaults:
 ## Architecture And Numerical Invariants
 
 - `src/app.ts` owns DOM wiring, debouncing, and interactions. `src/ui/controller.ts` owns state, derived data, and cache invalidation. Plotting belongs under `src/plot/`, solving under `src/solver/`, and expression/equilibrium logic under `src/math/`.
-- Keep `src/math/parser.ts` as the public expression facade. Syntax, evaluation, diagnostics, domain analysis, intervals, functions, and LaTeX remain separated under `src/math/expression/`. Never use `eval`, `new Function`, or runtime code generation.
+- Keep `src/math/parser.ts` as the public expression facade. Syntax, evaluation, diagnostics, domain analysis, intervals, functions, and LaTeX remain separated under `src/math/expression/`. Coordinate-expression inputs reuse this grammar through the facade, reject syntactic `t` or `y` dependencies, and must resolve to finite real values. Never use `eval`, `new Function`, or runtime code generation.
 - Preserve semantic autonomy and domain information. Cancellation such as `t - t` may remove genuine time dependence, but must not erase holes such as those in `0 / t` or `0 * t^-1`.
 - Parse and compile once per expression. Prepare diagnostic evaluation once per numerical pass and reuse it in equilibrium searches, solving, direction fields, and phase-flow analysis.
 - Domain checks must detect sign-changing, even-order, paired, and oblique undefined barriers without inventing barriers for safe correlated or exactly cancelled expressions.
@@ -26,7 +26,7 @@ Current defaults:
 - Despite its filename, `src/solver/rk4.ts` implements adaptive Dormand-Prince RK45 with an embedded error estimate and FSAL reuse. Preserve distinct termination outcomes for domain limits, singularities, invalid values, visible-boundary exits, step underflow, and other solver failures.
 - Use `AppController.applyUpdate` for related state changes. Batch expression, bounds, phase-flow, removal, and clear intents so listeners receive one final update and expensive derived data is invalidated once.
 - Preserve selective recomputation: adding a seed solves only that curve; removing or clearing curves and toggling overlays must not recompile expressions, rescan equilibria, or resolve unrelated curves.
-- Expression edits are debounced and complete, valid finite bounds apply live. Bounds, clear, removal, and phase-flow actions must batch any pending expression into the same update. Plot clicks must commit a pending expression before validating, snapping, or solving the seed. Partial or invalid bounds must remain editable, and expression no-ops must restore the ready state.
+- Expression edits are debounced and complete, valid finite bounds apply live. Bounds, clear, removal, and phase-flow actions must batch any pending expression into the same update. Plot clicks and entered trajectory points must commit a pending expression before validating or solving the seed. Partial or invalid bounds must remain editable, and expression no-ops must restore the ready state.
 - Keep dependency-keyed retained SVG layers. Grid and direction-field geometry should use compact paths. Adding or removing curves should retain unaffected groups; resize should reposition existing annotations and screen-compensated symbols without rebuilding unchanged geometry.
 - For autonomous equations, evaluate the direction-field slope once per visible `y` row and reuse it across that row.
 
@@ -39,11 +39,11 @@ Current defaults:
 - Render large KaTeX tick and axis labels inside the plotting plane beside the real zero axes. If zero is outside the window, clamp labels to the nearest edge without inventing an edge axis. Suppress the duplicate origin label and preserve alignment on resize.
 - Keep the title/editor at top left, rendered equation pill at top center, two-row window controls at bottom left, and equilibrium information with `Show phase flow` at bottom right.
 - The editor identifies the application as `Scalar Differential Equation`, includes the first-order-ODE eyebrow and rendered `y'=f(y,t)` hint, and uses a KaTeX `y'=` prefix. Keep generated LaTeX conventional; for example, put a whole-numerator minus before its fraction.
-- Window controls place `t_{\min},t_{\max}` on one row and `y_{\min},y_{\max}` on the next, with KaTeX labels, Clear curves, and Reset.
+- Window controls place `t_{\min},t_{\max}` on one row and `y_{\min},y_{\max}` on the next, with KaTeX labels, Clear curves, Reset, and a compact collapsed trajectory-point entry. Its `t_0,y_0` fields accept constant expressions such as `pi/2`, `log(e)`, and `2^3`; keep typed coordinates exact rather than snapping them.
 - The equilibrium card shows the KaTeX criterion and actual constant solutions or intervals. Do not show a curve counter. Isolated equilibria are thick solid black lines; continuous families are restrained bands.
 - Keep shortcut guidance in the small non-modal Help popover above the lower-left utility controls; do not add a permanent interaction panel.
 - `Hide UI` hides the editor, window card, and equilibrium card while retaining the centered equation, plot, Help button, and restore control.
-- Clicking adds a curve, with gentle snapping to axes and lighter snapping to equilibrium lines. Right-click near a curve removes it. `Shift` + right-click clears all curves. Keep the visible Clear curves alternative.
+- Clicking adds a curve, with gentle snapping to axes and lighter snapping to equilibrium lines. The point-entry form adds a curve through an exact, finite, in-window, domain-safe entered point. Right-click near a curve removes it. `Shift` + right-click clears all curves. Keep the visible Clear curves alternative.
 - Use a crosshair cursor and a broad, distinguishable trajectory palette. Curves near singularities must stop rather than cross undefined barriers.
 - The optional phase-flow strip is opaque, full height, above curves, and centered on a visible `t=0` axis. Suppress it when `t=0` is outside the window. Use teal filled-head arrows and circular stable, unstable, or half-filled semistable markers; compensate for nonuniform SVG scaling.
 - Use the term `Direction field`, not `Phase portrait`.

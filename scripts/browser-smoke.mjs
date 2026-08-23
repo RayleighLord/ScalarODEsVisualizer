@@ -62,6 +62,7 @@ try {
   await assertContextMenuCurveRemoval(page);
   await assertEquilibriumIntervalRendering(page);
   await assertCanceledDomainDependency(page);
+  await assertTrajectoryPointEntry(page);
   await assertAnnotationOnlyResize(page);
   await assertEdgeClampedAxisAnnotations(page);
   await assertUiVisibilityAndHelp(page);
@@ -662,6 +663,252 @@ async function assertCanceledDomainDependency(page) {
   await page.locator("#reset-button").click();
   await expectText(page.locator("#equation-status"), "Ready", 1500);
   await expectCurveCount(page, 0);
+}
+
+async function assertTrajectoryPointEntry(page) {
+  const disclosure = page.locator("#trajectory-point-disclosure");
+  const summary = page.locator("#trajectory-point-summary");
+  const controls = page.locator("#trajectory-point-controls");
+  const tInput = page.locator("#trajectory-t-input");
+  const yInput = page.locator("#trajectory-y-input");
+  const error = page.locator("#trajectory-point-error");
+
+  assert.equal(await disclosure.getAttribute("data-open"), "false");
+  assert.equal(await summary.getAttribute("aria-expanded"), "false");
+  assert.equal(await controls.isHidden(), true);
+  assert.equal(await tInput.getAttribute("type"), "text");
+  assert.equal(await yInput.getAttribute("type"), "text");
+  assert.equal(await tInput.inputValue(), "0");
+  assert.equal(await yInput.inputValue(), "1");
+  assert.equal(await page.locator("#trajectory-point-hint").count(), 0);
+
+  await summary.click();
+  await controls.waitFor({ state: "visible" });
+  assert.equal(await disclosure.getAttribute("data-open"), "true");
+  assert.equal(await summary.getAttribute("aria-expanded"), "true");
+
+  await tInput.fill("pi/2");
+  await yInput.fill("log(e) + 2^-1");
+  await yInput.press("Enter");
+  await expectCurveCount(page, 1);
+
+  const recoveredSeed = await page.locator("[data-curve-seed-marker]").evaluate((marker) => {
+    const svg = marker.ownerSVGElement;
+    const tMinInput = document.querySelector("#t-min-input");
+    const tMaxInput = document.querySelector("#t-max-input");
+    const yMinInput = document.querySelector("#y-min-input");
+    const yMaxInput = document.querySelector("#y-max-input");
+    if (
+      !(svg instanceof SVGSVGElement) ||
+      !(tMinInput instanceof HTMLInputElement) ||
+      !(tMaxInput instanceof HTMLInputElement) ||
+      !(yMinInput instanceof HTMLInputElement) ||
+      !(yMaxInput instanceof HTMLInputElement)
+    ) {
+      throw new Error("The trajectory seed and visible bounds must be rendered.");
+    }
+
+    const seedX = Number(marker.getAttribute("data-curve-seed-x"));
+    const seedY = Number(marker.getAttribute("data-curve-seed-y"));
+    const { x, y, width, height } = svg.viewBox.baseVal;
+    const tMin = tMinInput.valueAsNumber;
+    const tMax = tMaxInput.valueAsNumber;
+    const yMin = yMinInput.valueAsNumber;
+    const yMax = yMaxInput.valueAsNumber;
+    return {
+      t: tMin + ((seedX - x) / width) * (tMax - tMin),
+      y: yMax - ((seedY - y) / height) * (yMax - yMin)
+    };
+  });
+  assert.ok(
+    Math.abs(recoveredSeed.t - Math.PI / 2) < 1e-12 &&
+      Math.abs(recoveredSeed.y - 1.5) < 1e-12,
+    `Pressing Enter must add the exact requested point (received ${recoveredSeed.t}, ${recoveredSeed.y}).`
+  );
+  assert.equal(await tInput.inputValue(), "pi/2");
+  assert.equal(await yInput.inputValue(), "log(e) + 2^-1");
+
+  await page.locator("#clear-curves-button").click();
+  await expectCurveCount(page, 0);
+
+  await tInput.fill("-sqrt(4)");
+  await yInput.fill("cos(0) / 2");
+  await tInput.press("Enter");
+  await expectCurveCount(page, 1);
+  assert.equal(
+    await page.locator('[data-layer="curves"] > [data-curve-id]').count(),
+    1,
+    "Enter in the t coordinate must add one trajectory rather than submit the bounds form."
+  );
+  await page.locator("#clear-curves-button").click();
+  await expectCurveCount(page, 0);
+
+  await tInput.fill("pi/2");
+  await yInput.fill("sqrt(2)");
+
+  const equationInput = page.getByLabel("ODE right-hand side");
+  await equationInput.fill("1 / (t - pi/2)");
+  assert.equal(await page.locator("#equation-status").textContent(), "Updating…");
+  await yInput.press("Enter");
+  await expectText(error, "The ODE is undefined at this point.", 1500);
+  await expectCurveCount(page, 0);
+  assert.equal(await page.locator("#equation-status").textContent(), "Ready");
+  assert.equal(await page.locator("#plot-ode-preview").getAttribute("aria-busy"), null);
+  assert.equal(await tInput.getAttribute("aria-invalid"), "true");
+  assert.equal(await yInput.getAttribute("aria-invalid"), "true");
+
+  await tInput.fill("");
+  await yInput.fill("1");
+  await yInput.press("Enter");
+  await expectText(error, "t₀: Enter a coordinate expression.");
+  await expectCurveCount(page, 0);
+  assert.equal(await tInput.getAttribute("aria-invalid"), "true");
+  assert.equal(await yInput.getAttribute("aria-invalid"), "false");
+
+  await tInput.fill("log(-1)");
+  await yInput.press("Enter");
+  await expectText(error, "t₀: Coordinate expression must have a finite real value.");
+  await expectCurveCount(page, 0);
+  assert.equal(await tInput.getAttribute("aria-invalid"), "true");
+  assert.equal(await yInput.getAttribute("aria-invalid"), "false");
+
+  await tInput.fill("t");
+  await yInput.press("Enter");
+  await expectText(error, "t₀: Coordinate expressions cannot use t or y.");
+  await expectCurveCount(page, 0);
+  assert.equal(await tInput.getAttribute("aria-invalid"), "true");
+  assert.equal(await yInput.getAttribute("aria-invalid"), "false");
+
+  await tInput.fill("sin(");
+  await yInput.press("Enter");
+  assert.ok(
+    (await error.textContent()).startsWith("t₀:"),
+    "Malformed coordinate feedback must identify the offending coordinate."
+  );
+  await expectCurveCount(page, 0);
+  assert.equal(await tInput.getAttribute("aria-invalid"), "true");
+  assert.equal(await yInput.getAttribute("aria-invalid"), "false");
+
+  await tInput.fill("2*pi");
+  await yInput.press("Enter");
+  await expectText(error, "Choose a point inside the current window.");
+  await expectCurveCount(page, 0);
+  assert.equal(await tInput.getAttribute("aria-invalid"), "true");
+  assert.equal(await yInput.getAttribute("aria-invalid"), "false");
+
+  await assertExpandedTrajectoryPointLayout(page);
+
+  await page.locator("#reset-button").click();
+  await expectText(page.locator("#equation-status"), "Ready", 1500);
+  await expectCurveCount(page, 0);
+  assert.equal(await tInput.inputValue(), "0");
+  assert.equal(await yInput.inputValue(), "1");
+  assert.equal(await error.isHidden(), true);
+  assert.equal(await error.textContent(), "");
+  assert.equal(await tInput.getAttribute("aria-invalid"), "false");
+  assert.equal(await yInput.getAttribute("aria-invalid"), "false");
+  assert.equal(await equationInput.inputValue(), "y * (2 - y)");
+  assert.equal(await page.locator("#t-min-input").inputValue(), "-6");
+  assert.equal(await page.locator("#t-max-input").inputValue(), "6");
+  assert.equal(await page.locator("#y-min-input").inputValue(), "-3");
+  assert.equal(await page.locator("#y-max-input").inputValue(), "3");
+  assert.equal(
+    await disclosure.getAttribute("data-open"),
+    "true",
+    "Reset should restore the point defaults without unexpectedly collapsing the open controls."
+  );
+}
+
+async function assertExpandedTrajectoryPointLayout(page) {
+  const viewportSizes = [
+    { width: 430, height: 740 },
+    { width: 760, height: 700 },
+    { width: 1180, height: 780 },
+    { width: 1440, height: 900 },
+    { width: 1536, height: 730 },
+    { width: 1920, height: 1080 }
+  ];
+
+  for (const viewport of viewportSizes) {
+    await page.setViewportSize(viewport);
+    await waitForResizeRender(page);
+
+    const geometry = await page.evaluate(() => {
+      const readBox = (selector) => {
+        const element = document.querySelector(selector);
+        if (!(element instanceof HTMLElement)) {
+          throw new Error(`Expected ${selector} to be rendered as HTML.`);
+        }
+        return element.getBoundingClientRect().toJSON();
+      };
+
+      const disclosure = document.querySelector("#trajectory-point-disclosure");
+      if (!(disclosure instanceof HTMLElement) || disclosure.dataset.open !== "true") {
+        throw new Error("The trajectory point controls must remain expanded during resize.");
+      }
+
+      return {
+        documentWidth: document.documentElement.scrollWidth,
+        documentHeight: document.documentElement.scrollHeight,
+        panels: {
+          equation: readBox(".equation-panel"),
+          equationBanner: readBox(".plot-equation-banner"),
+          leftControls: readBox(".left-control-stack"),
+          equilibria: readBox(".equilibria-panel")
+        },
+        pointControls: {
+          t: readBox("#trajectory-t-input"),
+          y: readBox("#trajectory-y-input"),
+          add: readBox("#add-trajectory-button")
+        }
+      };
+    });
+
+    assert.ok(
+      geometry.documentWidth <= viewport.width + 1 &&
+        geometry.documentHeight <= viewport.height + 1,
+      `Expanded point controls must not create scrolling at ${viewport.width}x${viewport.height}.`
+    );
+
+    for (const [name, box] of Object.entries(geometry.panels)) {
+      assert.ok(
+        box.x >= -1 &&
+          box.y >= -1 &&
+          box.x + box.width <= viewport.width + 1 &&
+          box.y + box.height <= viewport.height + 1,
+        `${name} must remain inside the ${viewport.width}x${viewport.height} viewport.`
+      );
+    }
+
+    const panelEntries = Object.entries(geometry.panels);
+    for (let leftIndex = 0; leftIndex < panelEntries.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < panelEntries.length; rightIndex += 1) {
+        const [leftName, leftBox] = panelEntries[leftIndex];
+        const [rightName, rightBox] = panelEntries[rightIndex];
+        assert.ok(
+          !boxesOverlap(leftBox, rightBox),
+          `${leftName} and ${rightName} must not overlap at ${viewport.width}x${viewport.height}.`
+        );
+      }
+    }
+
+    const pointControlBoxes = Object.values(geometry.pointControls);
+    for (let leftIndex = 0; leftIndex < pointControlBoxes.length; leftIndex += 1) {
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < pointControlBoxes.length;
+        rightIndex += 1
+      ) {
+        assert.ok(
+          !boxesOverlap(pointControlBoxes[leftIndex], pointControlBoxes[rightIndex]),
+          `Expanded point fields and Add button must not overlap at ${viewport.width}x${viewport.height}.`
+        );
+      }
+    }
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await waitForResizeRender(page);
 }
 
 async function assertUiVisibilityAndHelp(page) {

@@ -194,7 +194,7 @@ function unwrapUnaryPlus(node: ExpressionNode): ExpressionNode {
 }
 
 export function evaluateConstantNode(node: ExpressionNode): number | null {
-  const variables = collectVariables(node);
+  const variables = collectSyntacticVariables(node);
   if (variables.size > 0) {
     return null;
   }
@@ -263,7 +263,7 @@ function powerHasDomainRestriction(exponentNode: ExpressionNode): boolean {
   return exponent !== null && exponent !== 0 && (exponent < 0 || !Number.isInteger(exponent));
 }
 
-function collectVariables(
+export function collectSyntacticVariables(
   node: ExpressionNode,
   variables = new Set<VariableName>()
 ): Set<VariableName> {
@@ -272,13 +272,13 @@ function collectVariables(
       variables.add(node.name);
       return variables;
     case "unary":
-      return collectVariables(node.argument, variables);
+      return collectSyntacticVariables(node.argument, variables);
     case "binary":
-      collectVariables(node.left, variables);
-      collectVariables(node.right, variables);
+      collectSyntacticVariables(node.left, variables);
+      collectSyntacticVariables(node.right, variables);
       return variables;
     case "function":
-      node.arguments.forEach((argument) => collectVariables(argument, variables));
+      node.arguments.forEach((argument) => collectSyntacticVariables(argument, variables));
       return variables;
     default:
       return variables;

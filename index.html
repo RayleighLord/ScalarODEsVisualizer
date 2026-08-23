@@ -116,12 +116,11 @@
               </ul>
             </section>
 
-            <form
-              id="bounds-form"
+            <section
+              id="window-panel"
               class="floating-panel bounds-panel"
-              aria-label="Visible axis limits"
+              aria-label="Window and trajectory controls"
               data-ui-overlay
-              novalidate
             >
               <div class="panel-heading-row">
                 <span class="panel-title">Window</span>
@@ -141,25 +140,105 @@
                 </div>
               </div>
 
-              <div class="bounds-grid">
-                <label class="bound-field">
-                  <span class="bound-symbol" data-static-latex="t_{\min}"></span>
-                  <input id="t-min-input" name="tMin" type="number" step="any" aria-label="t minimum" />
-                </label>
-                <label class="bound-field">
-                  <span class="bound-symbol" data-static-latex="t_{\max}"></span>
-                  <input id="t-max-input" name="tMax" type="number" step="any" aria-label="t maximum" />
-                </label>
-                <label class="bound-field">
-                  <span class="bound-symbol" data-static-latex="y_{\min}"></span>
-                  <input id="y-min-input" name="yMin" type="number" step="any" aria-label="y minimum" />
-                </label>
-                <label class="bound-field">
-                  <span class="bound-symbol" data-static-latex="y_{\max}"></span>
-                  <input id="y-max-input" name="yMax" type="number" step="any" aria-label="y maximum" />
-                </label>
+              <form id="bounds-form" aria-label="Visible axis limits" novalidate>
+                <div class="bounds-grid">
+                  <label class="bound-field">
+                    <span class="bound-symbol" data-static-latex="t_{\min}"></span>
+                    <input id="t-min-input" name="tMin" type="number" step="any" aria-label="t minimum" />
+                  </label>
+                  <label class="bound-field">
+                    <span class="bound-symbol" data-static-latex="t_{\max}"></span>
+                    <input id="t-max-input" name="tMax" type="number" step="any" aria-label="t maximum" />
+                  </label>
+                  <label class="bound-field">
+                    <span class="bound-symbol" data-static-latex="y_{\min}"></span>
+                    <input id="y-min-input" name="yMin" type="number" step="any" aria-label="y minimum" />
+                  </label>
+                  <label class="bound-field">
+                    <span class="bound-symbol" data-static-latex="y_{\max}"></span>
+                    <input id="y-max-input" name="yMax" type="number" step="any" aria-label="y maximum" />
+                  </label>
+                </div>
+              </form>
+
+              <div
+                id="trajectory-point-disclosure"
+                class="trajectory-point-disclosure"
+                data-open="false"
+              >
+                <button
+                  id="trajectory-point-summary"
+                  class="trajectory-point-summary"
+                  type="button"
+                  aria-label="Add trajectory from point"
+                  aria-controls="trajectory-point-controls"
+                  aria-expanded="false"
+                >
+                  <span>Add trajectory from point</span>
+                  <span
+                    class="trajectory-point-summary-symbol"
+                    data-static-latex="(t_0,y_0)"
+                    aria-hidden="true"
+                  ></span>
+                </button>
+
+                <form
+                  id="trajectory-point-controls"
+                  class="trajectory-point-controls"
+                  aria-label="Add trajectory from a point"
+                  novalidate
+                  hidden
+                >
+                  <label class="trajectory-point-field">
+                    <span class="trajectory-point-symbol" data-static-latex="t_0"></span>
+                    <input
+                      id="trajectory-t-input"
+                      class="trajectory-coordinate-input"
+                      name="trajectoryT"
+                      type="text"
+                      value="0"
+                      autocomplete="off"
+                      autocapitalize="off"
+                      inputmode="text"
+                      spellcheck="false"
+                      aria-label="Trajectory point t coordinate expression"
+                      aria-describedby="trajectory-point-error"
+                      aria-invalid="false"
+                    />
+                  </label>
+                  <label class="trajectory-point-field">
+                    <span class="trajectory-point-symbol" data-static-latex="y_0"></span>
+                    <input
+                      id="trajectory-y-input"
+                      class="trajectory-coordinate-input"
+                      name="trajectoryY"
+                      type="text"
+                      value="1"
+                      autocomplete="off"
+                      autocapitalize="off"
+                      inputmode="text"
+                      spellcheck="false"
+                      aria-label="Trajectory point y coordinate expression"
+                      aria-describedby="trajectory-point-error"
+                      aria-invalid="false"
+                    />
+                  </label>
+                  <button
+                    id="add-trajectory-button"
+                    class="trajectory-add-button"
+                    type="submit"
+                  >
+                    Add
+                  </button>
+                  <p
+                    id="trajectory-point-error"
+                    class="trajectory-point-error"
+                    aria-live="polite"
+                    hidden
+                  ></p>
+                </form>
               </div>
-            </form>
+            </section>
           </div>
 
           <aside
